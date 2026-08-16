@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -17,22 +19,22 @@ from app.services.vector_store import VectorStoreService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version='0.1.0')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=['*'],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 
 @app.exception_handler(DocumentTextExtractionError)
 async def document_text_extraction_error_handler(request: Request, exc: DocumentTextExtractionError) -> JSONResponse:
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(status_code=400, content={'detail': str(exc)})
 
 
-@app.on_event("startup")
+@app.on_event('startup')
 def startup() -> None:
     embeddings = EmbeddingService(settings.gemini_api_key, settings.gemini_embedding_model)
     vector_store = VectorStoreService(embeddings.embeddings, settings.vector_store_dir)
@@ -56,3 +58,11 @@ def startup() -> None:
 
 app.include_router(api_router, prefix=settings.api_prefix)
 
+for candidate in [
+    Path(__file__).resolve().parents[2] / 'frontend' / 'dist',
+    Path(__file__).resolve().parents[1] / 'frontend' / 'dist',
+    Path('/app/frontend/dist'),
+]:
+    if candidate.exists() and candidate.is_dir():
+        app.mount('/', StaticFiles(directory=str(candidate), html=True), name='static')
+        break

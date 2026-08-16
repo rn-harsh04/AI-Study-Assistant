@@ -14,3 +14,7 @@ frontend/dist/
 backend/data/
 data/
 
+
+*:Zone.Identifier
+*.egg-info/
+

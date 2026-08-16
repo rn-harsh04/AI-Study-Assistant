@@ -12,8 +12,8 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = Depends(),
     document_service: DocumentService = Depends(get_document_service),
 ) -> DocumentUploadResponse:
     try:

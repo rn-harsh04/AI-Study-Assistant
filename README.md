@@ -30,7 +30,7 @@ npm install
 
 ```bash
 cd backend
-pip install -e .
+pip install -r requirements.txt
 ```
 
 5. Start the backend:
@@ -46,6 +46,23 @@ uvicorn app.main:app --reload
 cd frontend
 npm run dev
 ```
+
+## Docker
+Run both services with Docker Compose:
+
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build
+```
+
+Then open:
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8000/api/v1`
+
+Notes:
+- The backend container persists uploads and the FAISS index in `./data`.
+- The frontend image is built with the backend API URL baked in.
+- Make sure `GEMINI_API_KEY` is set in `backend/.env` before starting.
 
 ## Environment Variables
 Backend (`backend/.env`):
