@@ -1,11 +1,15 @@
 # 🧠 AI Study Assistant — Grounded Multimodal RAG & Study Companion
 
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-Render_Deployment-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://ai-study-assistant-coy7.onrender.com/)
+
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
 [![Gemini](https://img.shields.io/badge/Google_Gemini-3.6_Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
 [![FastEmbed](https://img.shields.io/badge/Embeddings-FastEmbed_BAAI-indigo?style=flat-square)](https://qdrant.github.io/fastembed/)
 [![FAISS](https://img.shields.io/badge/Vector_DB-FAISS_CPU-blue?style=flat-square)](https://github.com/facebookresearch/faiss)
+
+> 🔗 **Live Application URL**: [https://ai-study-assistant-coy7.onrender.com/](https://ai-study-assistant-coy7.onrender.com/)
 
 An intelligent, full-stack AI Study Assistant built for students and researchers. Transform textbooks, lecture slides, research papers, notes, and diagrams into an interactive knowledge base with grounded Q&A, automatic practice quizzes, and interactive 3D flashcards with 1-click **Anki (.apkg)** and **CSV** exports.
 
@@ -14,6 +18,7 @@ An intelligent, full-stack AI Study Assistant built for students and researchers
 ## 🌟 Key Features
 
 - **📚 Multimodal Document Ingestion**: Upload PDFs, text files, notes, and diagrams. Ingestion and vector chunking run **100% locally and offline** without consuming external API rate limits.
+- **🔒 Anonymous Session Isolation**: Individual users visiting the live URL automatically receive their own private, isolated workspace and document library without needing to log in.
 - **⚡ High-Speed Local Embeddings (FastEmbed)**: Uses `BAAI/bge-small-en-v1.5` via ONNX Runtime for ultra-fast, zero-cost, CPU-optimized vector embeddings.
 - **💬 Grounded Concept Explanations & Summaries**: Ask complex questions across single or all indexed documents. Answers are grounded in the source text with verifiable source chunk citations.
 - **🎯 Interactive Practice Quiz Generator**: Auto-generates 5-question multiple-choice quizzes with explanations and instant scoring.
