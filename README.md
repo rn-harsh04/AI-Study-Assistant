@@ -153,7 +153,8 @@ This repository includes a native `Dockerfile` and `render.yaml` configuration f
 3. Click **Deploy Web Service**. Render builds the React frontend, packages the Python backend with FastEmbed & FAISS, and serves the full-stack app on a public HTTPS URL.
 
 ---
-
+## LIVE LINK
+https://ai-study-assistant-coy7.onrender.com/
 ## 🧪 Testing
 
 Run the automated test suite covering health checks, document indexing, RAG retrieval, quiz generation, flashcard creation, and Anki/CSV exports:
