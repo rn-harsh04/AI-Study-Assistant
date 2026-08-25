@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import ChatPanel from "./components/ChatPanel";
 import DocumentsPanel from "./components/DocumentsPanel";
+import FlashcardsPanel from "./components/FlashcardsPanel";
 import {
   listDocuments,
   deleteDocument as apiDeleteDocument,
@@ -8,7 +9,7 @@ import {
   type ChatMode,
 } from "./lib/api";
 
-type ActiveTab = "chat" | "quiz" | "documents";
+type ActiveTab = "chat" | "quiz" | "flashcards" | "documents";
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -26,7 +27,6 @@ export default function App() {
       const currentDocuments = await listDocuments();
       setDocuments(currentDocuments);
 
-      // Keep active document in sync if it was updated or deleted
       if (activeDocument) {
         const stillExists = currentDocuments.find((d) => d.id === activeDocument.id);
         setActiveDocument(stillExists || null);
@@ -79,7 +79,6 @@ export default function App() {
   function handleUploaded(newDoc: DocumentRecord) {
     setDocuments((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
     setActiveDocument(newDoc);
-    // Switch to documents view or keep on current view
     void fetchDocuments(true);
   }
 
@@ -96,43 +95,67 @@ export default function App() {
       {/* Top Glassmorphic Navigation Bar */}
       <header className="app-header">
         <div className="header-brand">
-          <div className="brand-logo">🧠</div>
+          <div className="brand-logo" aria-hidden="true">🧠</div>
           <div className="brand-titles">
             <h1 className="brand-name">StudyAssistant<span className="brand-ai">AI</span></h1>
             <span className="brand-tagline">Grounded Multimodal RAG</span>
           </div>
         </div>
 
-        {/* Center Tab Navigation */}
-        <nav className="nav-tabs" role="tablist" aria-label="Main Navigation">
+        {/* Unified Top Tab Navigation */}
+        <nav className="nav-tabs" role="tablist" aria-label="Main Navigation Tabs">
           <button
             type="button"
+            role="tab"
+            id="tab-chat"
+            aria-selected={activeTab === "chat"}
+            aria-controls="panel-chat"
             className={`nav-tab ${activeTab === "chat" ? "nav-tab-active" : ""}`}
             onClick={() => {
               setChatMode("explain");
               setActiveTab("chat");
             }}
           >
-            <span className="tab-icon">💬</span>
+            <span className="tab-icon" aria-hidden="true">💬</span>
             <span className="tab-text">Explain & Chat</span>
           </button>
           <button
             type="button"
+            role="tab"
+            id="tab-quiz"
+            aria-selected={activeTab === "quiz"}
+            aria-controls="panel-quiz"
             className={`nav-tab ${activeTab === "quiz" ? "nav-tab-active" : ""}`}
             onClick={() => {
               setChatMode("quiz");
               setActiveTab("quiz");
             }}
           >
-            <span className="tab-icon">🎯</span>
+            <span className="tab-icon" aria-hidden="true">🎯</span>
             <span className="tab-text">Practice Quiz</span>
           </button>
           <button
             type="button"
+            role="tab"
+            id="tab-flashcards"
+            aria-selected={activeTab === "flashcards"}
+            aria-controls="panel-flashcards"
+            className={`nav-tab ${activeTab === "flashcards" ? "nav-tab-active" : ""}`}
+            onClick={() => setActiveTab("flashcards")}
+          >
+            <span className="tab-icon" aria-hidden="true">🗂️</span>
+            <span className="tab-text">Flashcards & Anki</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-documents"
+            aria-selected={activeTab === "documents"}
+            aria-controls="panel-documents"
             className={`nav-tab ${activeTab === "documents" ? "nav-tab-active" : ""}`}
             onClick={() => setActiveTab("documents")}
           >
-            <span className="tab-icon">📚</span>
+            <span className="tab-icon" aria-hidden="true">📚</span>
             <span className="tab-text">Library & Files</span>
             <span className="tab-badge">{documents.length}</span>
           </button>
@@ -142,11 +165,11 @@ export default function App() {
         <div className="header-status">
           {processingCount > 0 ? (
             <span className="status-pill status-pill-warning">
-              <span className="spinner-mini"></span> Indexing {processingCount} doc{processingCount > 1 ? "s" : ""}
+              <span className="spinner-mini" aria-hidden="true"></span> Indexing {processingCount} doc{processingCount > 1 ? "s" : ""}
             </span>
           ) : readyCount > 0 ? (
             <span className="status-pill status-pill-success">
-              <span className="status-dot"></span> {readyCount} Document{readyCount > 1 ? "s" : ""} Ready
+              <span className="status-dot" aria-hidden="true"></span> {readyCount} Document{readyCount > 1 ? "s" : ""} Ready
             </span>
           ) : (
             <span className="status-pill status-pill-neutral">
@@ -159,39 +182,73 @@ export default function App() {
       {/* Main App Workspace */}
       <main className="app-main-content">
         {error && (
-          <div className="alert alert-danger global-alert">
+          <div className="alert alert-danger global-alert" role="alert">
             <span>{error}</span>
-            <button type="button" className="btn-close" onClick={() => setError(null)}>✕</button>
+            <button
+              type="button"
+              className="btn-close"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error message"
+            >
+              ✕
+            </button>
           </div>
         )}
 
         {loading ? (
           <div className="loading-state card">
-            <span className="spinner-lg"></span>
+            <span className="spinner-lg" aria-hidden="true"></span>
             <p>Loading study assistant workspace...</p>
           </div>
         ) : (
           <>
             {(activeTab === "chat" || activeTab === "quiz") && (
-              <ChatPanel
-                documentCount={readyCount}
-                activeDocument={activeDocument}
-                allDocuments={documents}
-                onSelectDocument={setActiveDocument}
-                initialMode={chatMode}
-                onSwitchToDocs={() => setActiveTab("documents")}
-              />
+              <div
+                role="tabpanel"
+                id={activeTab === "quiz" ? "panel-quiz" : "panel-chat"}
+                aria-labelledby={activeTab === "quiz" ? "tab-quiz" : "tab-chat"}
+              >
+                <ChatPanel
+                  documentCount={readyCount}
+                  activeDocument={activeDocument}
+                  allDocuments={documents}
+                  onSelectDocument={setActiveDocument}
+                  mode={chatMode}
+                  onSwitchToDocs={() => setActiveTab("documents")}
+                />
+              </div>
+            )}
+
+            {activeTab === "flashcards" && (
+              <div
+                role="tabpanel"
+                id="panel-flashcards"
+                aria-labelledby="tab-flashcards"
+              >
+                <FlashcardsPanel
+                  documents={documents}
+                  activeDocument={activeDocument}
+                  onSelectDocument={setActiveDocument}
+                  onSwitchToDocs={() => setActiveTab("documents")}
+                />
+              </div>
             )}
 
             {activeTab === "documents" && (
-              <DocumentsPanel
-                documents={documents}
-                activeDocument={activeDocument}
-                onSelectDocument={setActiveDocument}
-                onDeleteDocument={handleDeleteDocument}
-                onUploaded={handleUploaded}
-                onNavigateToChat={navigateToChat}
-              />
+              <div
+                role="tabpanel"
+                id="panel-documents"
+                aria-labelledby="tab-documents"
+              >
+                <DocumentsPanel
+                  documents={documents}
+                  activeDocument={activeDocument}
+                  onSelectDocument={setActiveDocument}
+                  onDeleteDocument={handleDeleteDocument}
+                  onUploaded={handleUploaded}
+                  onNavigateToChat={navigateToChat}
+                />
+              </div>
             )}
           </>
         )}
@@ -199,7 +256,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="app-footer">
-        <p>AI Study Assistant • Grounded with Gemini & FAISS • Upload notes, ask questions, ace quizzes.</p>
+        <p>AI Study Assistant • Grounded with Gemini & FAISS • Upload notes, ask questions, ace quizzes, export Anki decks.</p>
       </footer>
     </div>
   );

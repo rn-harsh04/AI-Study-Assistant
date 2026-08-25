@@ -1,0 +1,9 @@
+# AI Study Assistant
+
+> An AI-powered study companion that transforms study documents into an interactive RAG knowledge base.
+
+## Features
+- Multimodal document ingestion (PDF, text, images)
+- Grounded conceptual explanations & summaries
+- Interactive practice quiz generation
+- Source citation and trace verification

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from io import BytesIO
 import logging
 from pathlib import Path
-import hashlib
 
 logger = logging.getLogger("studyassistant.parser")
 
@@ -16,9 +15,9 @@ class ParsedPage:
 
 
 class DocumentParser:
-    def __init__(self, api_key: str | None = None, vision_model: str = "gemini-2.5-flash") -> None:
+    def __init__(self, api_key: str | None = None, vision_model: str = "gemini-3.6-flash") -> None:
         self._api_key = api_key
-        self._vision_model = vision_model
+        self._vision_model = vision_model or "gemini-3.6-flash"
 
     def parse(self, file_path: Path) -> list[ParsedPage]:
         suffix = file_path.suffix.lower()
@@ -35,24 +34,7 @@ class DocumentParser:
         reader = PdfReader(str(file_path))
         pages: list[ParsedPage] = []
 
-        # Configure generative vision client lazily if API key is provided
-        genai_model = None
-        if self._api_key:
-            try:
-                import google.generativeai as genai_pkg
-
-                genai_pkg.configure(api_key=self._api_key)
-                genai_model = genai_pkg.GenerativeModel(self._vision_model)
-            except Exception as exc:
-                logger.warning(f"Could not initialize Gemini vision model: {exc}")
-                genai_model = None
-
-        total_pages = len(reader.pages)
-        vision_calls_count = 0
-        MAX_VISION_CALLS = 5  # Cap vision calls per document to avoid 429 rate limits and long delays
-
         for index, page in enumerate(reader.pages, start=1):
-            # 1) Extract digital text
             text = ""
             try:
                 text = (page.extract_text() or "").strip()
@@ -60,7 +42,6 @@ class DocumentParser:
                 logger.warning(f"Error extracting text from page {index}: {exc}")
                 text = ""
 
-            # If page text is empty, check if OCR is available for scanned pages
             if not text:
                 try:
                     import pytesseract
@@ -77,45 +58,6 @@ class DocumentParser:
             if text:
                 pages.append(ParsedPage(page_number=index, text=text))
 
-            # 2) Extract prominent images / diagrams for description (if vision calls remaining)
-            if vision_calls_count < MAX_VISION_CALLS and genai_model:
-                try:
-                    page_images = list(page.images) if hasattr(page, "images") else []
-                    for img in page_images:
-                        if vision_calls_count >= MAX_VISION_CALLS:
-                            break
-                        
-                        img_data = getattr(img, "data", None)
-                        if not img_data or len(img_data) < 5000:
-                            # Skip tiny icons / decorative elements (<5KB)
-                            continue
-
-                        try:
-                            pil_img = Image.open(BytesIO(img_data))
-                            # Skip if image dimensions are too small to be a meaningful diagram
-                            if pil_img.width < 150 or pil_img.height < 150:
-                                continue
-
-                            prompt = (
-                                "Describe this diagram, chart, or image briefly (1-3 sentences). "
-                                "List any key labels or data points. Reply with plain text only."
-                            )
-                            response = genai_model.generate_content([prompt, pil_img])
-                            description = getattr(response, "text", "") or ""
-                            if description.strip():
-                                img_hash = hashlib.sha1(img_data).hexdigest()[:8]
-                                pages.append(
-                                    ParsedPage(
-                                        page_number=index,
-                                        text=f"[Diagram #{img_hash} on page {index}]: {description.strip()}",
-                                    )
-                                )
-                                vision_calls_count += 1
-                        except Exception as img_exc:
-                            logger.debug(f"Image vision processing skipped: {img_exc}")
-                except Exception:
-                    pass
-
         return pages
 
     def _parse_text(self, file_path: Path) -> list[ParsedPage]:
@@ -123,6 +65,16 @@ class DocumentParser:
         return [ParsedPage(page_number=None, text=content)] if content else []
 
     def _parse_image(self, file_path: Path) -> list[ParsedPage]:
+        try:
+            import pytesseract
+            from PIL import Image
+            img = Image.open(file_path)
+            ocr_text = pytesseract.image_to_string(img).strip()
+            if ocr_text:
+                return [ParsedPage(page_number=1, text=ocr_text)]
+        except Exception:
+            pass
+
         if not self._api_key:
             return []
 

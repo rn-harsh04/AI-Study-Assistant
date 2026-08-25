@@ -9,6 +9,7 @@ class DocumentRecord(BaseModel):
     id: str
     filename: str
     stored_path: str
+    session_id: str | None = None
     mime_type: str | None = None
     status: str = "ready"
     chunk_count: int = 0

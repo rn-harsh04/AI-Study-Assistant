@@ -36,8 +36,8 @@ class DocumentService:
         self._vector_store = vector_store
         self._uploads_dir = uploads_dir
 
-    async def ingest_upload(self, upload_file: UploadFile) -> DocumentRecord:
-        record = await self.save_upload_file(upload_file)
+    async def ingest_upload(self, upload_file: UploadFile, session_id: str | None = None) -> DocumentRecord:
+        record = await self.save_upload_file(upload_file, session_id=session_id)
         try:
             self.finalize_processing(record.id)
             updated = self._repository.get(record.id)
@@ -45,8 +45,7 @@ class DocumentService:
         except Exception:
             raise
 
-    async def save_upload_file(self, upload_file: UploadFile) -> DocumentRecord:
-        """Save upload to disk and create a processing record. Does NOT block for indexing."""
+    async def save_upload_file(self, upload_file: UploadFile, session_id: str | None = None) -> DocumentRecord:
         document_id = uuid4().hex
         safe_name = Path(upload_file.filename or "document").name
         destination_dir = self._uploads_dir / document_id
@@ -61,6 +60,7 @@ class DocumentService:
             id=document_id,
             filename=safe_name,
             stored_path=str(destination_path),
+            session_id=session_id,
             mime_type=upload_file.content_type,
             status="processing",
             chunk_count=0,
@@ -71,7 +71,6 @@ class DocumentService:
         return record
 
     def finalize_processing(self, document_id: str) -> None:
-        """Process a previously saved upload: parse, chunk and index."""
         record = self._repository.get(document_id)
         if record is None:
             return
@@ -115,24 +114,35 @@ class DocumentService:
             )
             self._repository.upsert(failed_record)
 
-    def list_documents(self) -> list[DocumentRecord]:
-        return self._repository.list()
+    def list_documents(self, session_id: str | None = None) -> list[DocumentRecord]:
+        all_docs = self._repository.list()
+        if not session_id:
+            return all_docs
+        # Return documents belonging to this session or shared legacy documents
+        return [doc for doc in all_docs if doc.session_id == session_id or doc.session_id is None]
 
-    def get_document(self, document_id: str) -> DocumentRecord | None:
-        return self._repository.get(document_id)
+    def get_document(self, document_id: str, session_id: str | None = None) -> DocumentRecord | None:
+        doc = self._repository.get(document_id)
+        if doc is None:
+            return None
+        if session_id and doc.session_id and doc.session_id != session_id:
+            return None
+        return doc
 
-    def delete_document(self, document_id: str) -> bool:
+    def delete_document(self, document_id: str, session_id: str | None = None) -> bool:
         record = self._repository.get(document_id)
         if record is None:
             return False
 
-        # 1. Delete vectors from FAISS
+        if session_id and record.session_id and record.session_id != session_id:
+            logger.warning(f"Unauthorized deletion attempt on document {document_id}")
+            return False
+
         try:
             self._vector_store.delete_document(document_id)
         except Exception as exc:
             logger.error(f"Error deleting vectors for {document_id}: {exc}")
 
-        # 2. Delete file storage
         try:
             doc_dir = self._uploads_dir / document_id
             if doc_dir.exists() and doc_dir.is_dir():
@@ -142,5 +152,4 @@ class DocumentService:
         except Exception as exc:
             logger.error(f"Error deleting files for {document_id}: {exc}")
 
-        # 3. Delete metadata record
         return self._repository.delete(document_id)

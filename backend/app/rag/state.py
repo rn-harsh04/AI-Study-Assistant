@@ -16,6 +16,7 @@ class GraphState(TypedDict, total=False):
     question: str
     mode: str
     document_id: str | None
+    session_id: str | None
     retrieved_chunks: list[RetrievedChunk]
     answer: str
     quiz: dict

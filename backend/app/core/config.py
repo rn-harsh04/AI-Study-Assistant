@@ -30,12 +30,12 @@ class Settings(BaseSettings):
     vector_store_dir: Path | None = None
     metadata_path: Path | None = None
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_chat_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
-    gemini_embedding_model: str = Field(default="gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL")
+    gemini_chat_model: str = Field(default="gemini-3.6-flash", alias="GEMINI_CHAT_MODEL")
+    gemini_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5", alias="GEMINI_EMBEDDING_MODEL")
     chunk_size: int = 1000
     chunk_overlap: int = 150
-    top_k: int = 4
-    min_relevance_score: float = 0.35
+    top_k: int = 6
+    min_relevance_score: float = 0.25
     allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "*",

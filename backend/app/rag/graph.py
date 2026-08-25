@@ -1,21 +1,36 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import json
 import logging
 import re
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+from app.core.llm import invoke_gemini_with_fallback
 from app.rag.state import GraphState, RetrievedChunk
 from app.schemas.chat import QuizPayload
 from app.services.vector_store import VectorStoreService
 
 logger = logging.getLogger("studyassistant.rag")
-SUPPORTED_CHAT_MODEL = "gemini-2.5-flash"
+DEFAULT_CHAT_MODEL = "gemini-3.6-flash"
+
+
+def _extract_text_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, str):
+                texts.append(block)
+            elif isinstance(block, dict) and "text" in block:
+                texts.append(str(block["text"]))
+            elif hasattr(block, "text"):
+                texts.append(str(getattr(block, "text", "")))
+        return "\n".join(texts).strip()
+    return str(content).strip()
 
 
 class RAGPipeline:
@@ -23,7 +38,7 @@ class RAGPipeline:
         self,
         *,
         api_key: str,
-        chat_model: str,
+        chat_model: str = DEFAULT_CHAT_MODEL,
         vector_store: VectorStoreService,
         top_k: int = 6,
         min_relevance_score: float = 0.25,
@@ -31,27 +46,12 @@ class RAGPipeline:
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required to initialize the RAG pipeline.")
 
+        self._api_key = api_key
+        self._chat_model = chat_model or DEFAULT_CHAT_MODEL
         self._vector_store = vector_store
         self._top_k = top_k
         self._min_relevance_score = min_relevance_score
-        self._llm = ChatGoogleGenerativeAI(
-            model=self._normalize_model(chat_model),
-            google_api_key=api_key,
-            temperature=0.2,
-        )
         self._graph = self._build_graph()
-
-    def _normalize_model(self, model: str) -> str:
-        legacy_models = {
-            "gemini-1.5-flash",
-            "models/gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-2.0-flash",
-            "models/gemini-2.0-flash",
-        }
-        if model in legacy_models:
-            return SUPPORTED_CHAT_MODEL
-        return model
 
     def _parse_quiz_payload(self, text: str) -> dict[str, Any]:
         fenced = re.search(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", text, re.IGNORECASE)
@@ -61,7 +61,6 @@ class RAGPipeline:
             except Exception:
                 pass
 
-        # Fallback: parse first JSON object-shaped substring.
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -87,22 +86,35 @@ class RAGPipeline:
     def ask(self, question: str) -> dict[str, Any]:
         return self._graph.invoke({"question": question, "mode": "explain"})
 
-    def ask_mode(self, question: str, mode: str, document_id: str | None = None) -> dict[str, Any]:
-        return self._graph.invoke({"question": question, "mode": mode, "document_id": document_id})
+    def ask_mode(
+        self,
+        question: str,
+        mode: str,
+        document_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._graph.invoke(
+            {
+                "question": question,
+                "mode": mode,
+                "document_id": document_id,
+                "session_id": session_id,
+            }
+        )
 
     def _retrieve_context(self, state: GraphState) -> GraphState:
         question = state["question"]
         mode = state.get("mode", "explain")
         
-        # Increase top_k for quiz generation or large document summaries
         is_summary_query = any(w in question.lower() for w in ["summarize", "summary", "overview", "main ideas", "quiz", "topics"])
         effective_k = max(self._top_k + 4, 8) if (mode == "quiz" or is_summary_query) else self._top_k
 
         matches = self._vector_store.search(
-            question,
-            effective_k,
-            self._min_relevance_score,
-            state.get("document_id"),
+            query=question,
+            top_k=effective_k,
+            min_relevance_score=self._min_relevance_score,
+            document_id=state.get("document_id"),
+            session_id=state.get("session_id"),
         )
         chunks: list[RetrievedChunk] = []
         for item in matches:
@@ -123,7 +135,7 @@ class RAGPipeline:
         chunks = state.get("retrieved_chunks", [])
         if not chunks:
             return {
-                "answer": "No relevant context was found in the indexed documents to answer your question.",
+                "answer": "No relevant context was found in your indexed documents to answer this question.",
                 "fallback": True,
                 "fallback_reason": "No relevant document chunks retrieved.",
                 "confidence": 0.0,
@@ -145,21 +157,21 @@ class RAGPipeline:
                 "Output valid JSON only with NO Markdown formatting, explanations, or fences."
             )
             human_prompt = (
-                "Document Context:\n{context}\n\n"
+                f"Document Context:\n{context}\n\n"
                 "Task: Create a 5-question multiple choice quiz with exactly 4 options per question grounded in the text above.\n"
                 "Return JSON with this exact format:\n"
-                "{{\n"
+                "{\n"
                 '  "title": "Practice Quiz: Key Concepts",\n'
                 '  "instructions": "Select the single best answer for each question.",\n'
                 '  "questions": [\n'
-                "    {{\n"
+                "    {\n"
                 '      "question": "Question text here?",\n'
                 '      "options": ["Option A", "Option B", "Option C", "Option D"],\n'
                 '      "correct_option_index": 0,\n'
                 '      "explanation": "Clear explanation of why this answer is correct based on the text."\n'
-                "    }}\n"
+                "    }\n"
                 "  ]\n"
-                "}}"
+                "}"
             )
         else:
             system_prompt = (
@@ -170,27 +182,34 @@ class RAGPipeline:
                 "and clearly mention what information is missing from the document."
             )
             human_prompt = (
-                "Document Context:\n{context}\n\n"
-                "Question: {question}\n\n"
+                f"Document Context:\n{context}\n\n"
+                f"Question: {state['question']}\n\n"
                 "Please provide a grounded, comprehensive, and easy-to-understand explanation."
             )
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", system_prompt),
-                ("human", human_prompt),
-            ]
-        )
-        chain = prompt | self._llm
         try:
-            result = chain.invoke({"context": context, "question": state["question"]})
-            answer = getattr(result, "content", str(result)).strip()
+            messages = [SystemMessage(content=system_prompt), HumanMessage(content=human_prompt)]
+            result = invoke_gemini_with_fallback(
+                messages=messages,
+                api_key=self._api_key,
+                preferred_model=self._chat_model,
+                temperature=0.2,
+            )
+            raw_content = getattr(result, "content", result)
+            answer = _extract_text_content(raw_content)
         except Exception as exc:
-            logger.error(f"LLM generation failed: {exc}")
+            err_msg = str(exc)
+            logger.error(f"LLM generation failed: {err_msg}")
+            friendly_err = (
+                "Google Gemini Free Tier daily limit reached (429 RESOURCE_EXHAUSTED). "
+                "Please paste a fresh API key in backend/.env from a new Google AI Studio project or enable billing."
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg
+                else f"Generation error: {err_msg}"
+            )
             return {
-                "answer": "I could not generate an answer because the language model call failed.",
+                "answer": f"⚠️ **Service Notice**: {friendly_err}",
                 "fallback": True,
-                "fallback_reason": f"Generation failed: {exc}",
+                "fallback_reason": friendly_err,
                 "confidence": 0.0,
             }
 

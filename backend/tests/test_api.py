@@ -1,4 +1,4 @@
-﻿from io import BytesIO
+from io import BytesIO
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -63,9 +63,34 @@ def run_all_tests():
         quiz_resp = res.json()
         print("   Quiz title:", quiz_resp.get("quiz", {}).get("title") if quiz_resp.get("quiz") else "Generated")
 
-        # 7. Delete document
+        # 7. Generate Flashcards and Test Anki / CSV Export
+        fc_payload = {
+            "document_id": doc_id,
+            "count": 5,
+            "topic": "Photosynthesis Reactions"
+        }
+        res = client.post("/api/v1/flashcards/generate", json=fc_payload)
+        print("7. Flashcards generation:", res.status_code)
+        assert res.status_code == 200
+        deck = res.json()
+        print(f"   Generated {len(deck['cards'])} flashcards for deck: '{deck['title']}'")
+        assert len(deck["cards"]) > 0
+
+        # Test Anki export
+        anki_res = client.post("/api/v1/flashcards/export/anki", json={"deck": deck})
+        assert anki_res.status_code == 200
+        assert anki_res.headers["content-type"] == "application/apkg"
+        print(f"   Anki (.apkg) package generated: {len(anki_res.content)} bytes")
+
+        # Test CSV export
+        csv_res = client.post("/api/v1/flashcards/export/csv", json={"deck": deck})
+        assert csv_res.status_code == 200
+        assert "text/csv" in csv_res.headers["content-type"]
+        print(f"   CSV export generated successfully.")
+
+        # 8. Delete document
         res = client.delete(f"/api/v1/documents/{doc_id}")
-        print("7. Delete document:", res.status_code, res.json())
+        print("8. Delete document:", res.status_code, res.json())
         assert res.status_code == 200
 
         # Verify deletion
@@ -73,14 +98,14 @@ def run_all_tests():
         assert res.status_code == 404
         print("   Verified document is removed (404).")
 
-        # 8. Static frontend root & SPA fallback
+        # 9. Static frontend root & SPA fallback
         res = client.get("/")
         assert res.status_code == 200
-        res = client.get("/quiz")
+        res = client.get("/flashcards")
         assert res.status_code == 200
-        print("8. Static files and SPA fallback verified.")
+        print("9. Static files and SPA fallback verified.")
 
-    print("\n🎉 ALL TESTS PASSED SUCCESSFULLY WITH ZERO ERRORS!")
+    print("\n🎉 ALL TESTS INCLUDING FLASHCARDS & ANKI PASSED WITH ZERO ERRORS!")
 
 if __name__ == "__main__":
     run_all_tests()

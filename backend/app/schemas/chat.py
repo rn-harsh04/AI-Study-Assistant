@@ -1,27 +1,20 @@
 from __future__ import annotations
-
 from typing import Literal
 from pydantic import BaseModel, Field
-
 from app.schemas.document import SourceChunk
 
 
 class QuizQuestion(BaseModel):
-    question: str = Field(min_length=1)
+    question: str
     options: list[str] = Field(min_length=2)
     correct_option_index: int = Field(ge=0)
     explanation: str | None = None
 
 
 class QuizPayload(BaseModel):
-    title: str = Field(min_length=1)
+    title: str = "Practice Quiz"
     instructions: str | None = None
-    questions: list[QuizQuestion] = Field(min_length=1)
-
-
-class IngestRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    content: str = Field(min_length=1)
+    questions: list[QuizQuestion] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):

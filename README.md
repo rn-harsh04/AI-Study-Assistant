@@ -1,186 +1,169 @@
-# AI Study Assistant
+# 🧠 AI Study Assistant — Grounded Multimodal RAG & Study Companion
 
-An AI-powered study assistant that transforms uploaded study materials (PDFs, plain text, and images) into an interactive, searchable RAG (Retrieval-Augmented Generation) knowledge base. It provides conceptual explanations, grounded summaries, and practice quizzes with answers and explanations powered by FastAPI, LangChain, LangGraph, Google Gemini, FAISS vector search, and React/Vite.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
+[![Gemini](https://img.shields.io/badge/Google_Gemini-3.6_Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
+[![FastEmbed](https://img.shields.io/badge/Embeddings-FastEmbed_BAAI-indigo?style=flat-square)](https://qdrant.github.io/fastembed/)
+[![FAISS](https://img.shields.io/badge/Vector_DB-FAISS_CPU-blue?style=flat-square)](https://github.com/facebookresearch/faiss)
 
----
-
-## Features
-
-- **Multimodal Document Parsing**: Ingests PDF documents, plain text notes, and image files.
-- **Vision-Powered Diagram Extraction**: Automatically detects embedded PDF images and generates searchable semantic descriptions using Gemini Vision models.
-- **Semantic Vector Retrieval**: Chunks content and embeds it into a local FAISS index for high-precision similarity retrieval.
-- **Interactive Explanations & Quizzes**:
-  - **Explain Mode**: Provides concise, grounded answers and concept breakdowns.
-  - **Quiz Mode**: Automatically generates multiple-choice quizzes with options, correct answers, and explanations.
-- **Source Traceability**: Displays source snippets and document references alongside answers so students can verify facts.
-- **Unified Full-Stack App**: FastAPI directly serves the React SPA production build with complete client-side routing and fallback support.
+An intelligent, full-stack AI Study Assistant built for students and researchers. Transform textbooks, lecture slides, research papers, notes, and diagrams into an interactive knowledge base with grounded Q&A, automatic practice quizzes, and interactive 3D flashcards with 1-click **Anki (.apkg)** and **CSV** exports.
 
 ---
 
-## Architecture & How It Works
+## 🌟 Key Features
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       React / Vite UI                       │
-│  (Upload Panel, Document Selection, Chat & Quiz Interface)  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ REST API (/api/v1)
-┌──────────────────────────────▼──────────────────────────────┐
-│                    FastAPI Backend Router                   │
-└──────┬──────────────────────┬──────────────────────┬────────┘
-       │                      │                      │
-┌──────▼──────┐       ┌───────▼────────┐      ┌──────▼───────┐
-│ /documents  │       │     /chat      │      │   /health    │
-└──────┬──────┘       └───────┬────────┘      └──────────────┘
-       │                      │
-┌──────▼──────────────────────▼───────────────────────────────┐
-│                      Document Service                       │
-│  - DocumentParser (pypdf + Gemini Vision)                   │
-│  - ChunkingService (Token / Character Splitting)            │
-│  - VectorStoreService (Google GenAI Embeddings + FAISS)     │
-│  - FileStore (Metadata Repository)                          │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-┌─────────────────────────────▼───────────────────────────────┐
-│                 LangGraph RAG State Pipeline                │
-│  1. Retrieve relevant chunks from FAISS                     │
-│  2. Build grounded context prompt                           │
-│  3. Generate Explanation / Quiz via ChatGoogleGenerativeAI   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Pipeline Flow:
-1. **Upload & Ingestion**:
-   - Files are uploaded to `/api/v1/documents/upload`.
-   - Text is extracted from PDF pages. Embedded images are sent to Gemini Vision to generate textual descriptions.
-   - Text and image descriptions are chunked and tagged with page numbers and document IDs.
-2. **Indexing**:
-   - Chunks are embedded with `gemini-embedding-001` and indexed in FAISS (`data/vector_store/faiss_index`).
-   - Document metadata is stored in `data/documents.json`.
-3. **Retrieval & Chat (RAG)**:
-   - Queries are submitted to `/api/v1/chat` with either `explain` or `quiz` mode.
-   - The RAG pipeline performs similarity search in FAISS against the selected document or full corpus.
-   - Retrieved chunks and the query are passed to the Gemini LLM graph to construct a grounded response or structured quiz.
+- **📚 Multimodal Document Ingestion**: Upload PDFs, text files, notes, and diagrams. Ingestion and vector chunking run **100% locally and offline** without consuming external API rate limits.
+- **⚡ High-Speed Local Embeddings (FastEmbed)**: Uses `BAAI/bge-small-en-v1.5` via ONNX Runtime for ultra-fast, zero-cost, CPU-optimized vector embeddings.
+- **💬 Grounded Concept Explanations & Summaries**: Ask complex questions across single or all indexed documents. Answers are grounded in the source text with verifiable source chunk citations.
+- **🎯 Interactive Practice Quiz Generator**: Auto-generates 5-question multiple-choice quizzes with explanations and instant scoring.
+- **🗂️ Interactive 3D Flashcards & Anki Export**:
+  - Interactive 3D flip card practice in the browser with keyboard shortcuts (Space to flip, Left/Right arrows to cycle).
+  - **📥 One-Click Anki Export (`.apkg`)**: Downloads native Anki decks with dark-mode styling importable directly into the Anki app.
+  - **📄 CSV Export**: Download 3-column spreadsheet decks for Quizlet, Notion, or RemNote.
+- **🛡️ Multi-Model Auto-Fallback Engine**: Cascades across available Gemini model tiers if rate limits are encountered, preventing service interruptions.
+- **✨ Premium Glassmorphic UI**: Fast, responsive dark interface with clean Markdown typography, source drawers, live indexing badges, and single-click document removal.
 
 ---
 
-## Project Structure
+## 🏗️ Architecture Overview
 
-```
-studyassistant/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── router.py          # API route aggregator
-│   │   │   └── routes/            # Route handlers (chat, documents, health, debug)
-│   │   ├── core/
-│   │   │   ├── config.py          # App settings & dynamic path configuration
-│   │   │   └── deps.py            # FastAPI dependency injection
-│   │   ├── rag/
-│   │   │   ├── graph.py           # LangGraph RAG pipeline definition
-│   │   │   └── state.py           # Typed graph state definitions
-│   │   ├── schemas/               # Pydantic data validation schemas
-│   │   ├── services/              # Ingestion, parsing, chunking, embeddings, FAISS
-│   │   └── main.py                # FastAPI app & static SPA server
-│   ├── tests/                     # Backend API & unit tests
-│   ├── Dockerfile                 # Backend container definition
-│   ├── pyproject.toml             # Python build configuration
-│   └── requirements.txt           # Python dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── components/            # React UI components (Upload, Chat, Sources)
-│   │   ├── lib/api.ts             # API client functions & TypeScript types
-│   │   ├── App.tsx                # Main application component
-│   │   ├── main.tsx               # React DOM root entrypoint
-│   │   └── styles.css             # Application styling
-│   ├── package.json               # Node dependencies & build scripts
-│   └── vite.config.ts             # Vite configuration & dev server proxy
-├── data/                          # Uploads, metadata, and FAISS indices
-├── docker-compose.yml             # Multi-container orchestration
-└── render.yaml                    # Cloud deployment blueprint
+```mermaid
+flowchart TD
+    subgraph Client ["Frontend (React + Vite + Vanilla CSS)"]
+        UI["Glassmorphic UI"]
+        Chat["Explain & Chat"]
+        Quiz["Interactive Quiz"]
+        Flashcards["3D Flashcards & Anki Export"]
+        Lib["Library & Uploads"]
+    end
+
+    subgraph Backend ["Backend (FastAPI + LangChain + LangGraph)"]
+        API["REST API Routes (/api/v1)"]
+        Parser["Document Parser (pypdf + Local OCR)"]
+        Chunker["Text Splitter & Chunker"]
+        Embedder["FastEmbed (BAAI/bge-small-en-v1.5)"]
+        VectorDB["FAISS Vector Store"]
+        RAG["LangGraph RAG Pipeline"]
+        AnkiEngine["GenAnki Package Generator"]
+        LLM["Google Gemini 3.6 Flash (with Multi-Tier Fallback)"]
+    end
+
+    Lib -->|Upload PDF/TXT/IMG| Parser
+    Parser --> Chunker
+    Chunker --> Embedder
+    Embedder --> VectorDB
+
+    Chat -->|Question| RAG
+    Quiz -->|Quiz Request| RAG
+    VectorDB -->|Retrieved Chunks| RAG
+    RAG -->|Grounded Prompt| LLM
+    LLM -->|Stream/Response| Chat
+    LLM -->|Structured Quiz| Quiz
+
+    Flashcards -->|Generate Deck| API
+    VectorDB -->|Key Concepts| API
+    API -->|High-Yield Extraction| LLM
+    LLM -->|Card Pairs| API
+    API -->|Deck JSON| Flashcards
+    Flashcards -->|Export Anki| AnkiEngine
+    AnkiEngine -->|Download .apkg| UI
 ```
 
 ---
 
-## Running Locally
+## 🚀 Quick Start (Local Development)
 
-### 1. Backend Setup
-
-1. Open a terminal and navigate to `backend/`:
-   ```bash
-   cd backend
-   ```
-2. Create and activate a Python virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Set your environment variables in `backend/.env`:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   GEMINI_CHAT_MODEL=gemini-2.5-flash
-   GEMINI_EMBEDDING_MODEL=gemini-embedding-001
-   ```
-5. Start the FastAPI server:
-   ```bash
-   uvicorn app.main:app --reload --port 8000
-   ```
-
-### 2. Frontend Setup
-
-1. In a separate terminal, navigate to `frontend/`:
-   ```bash
-   cd frontend
-   ```
-2. Install frontend dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Vite development server:
-   ```bash
-   npm run dev
-   ```
-4. Open `http://localhost:5173` in your browser. (The development server proxies `/api` requests to `http://127.0.0.1:8000`).
+### Prerequisites
+- Python 3.10+
+- Node.js 18+ & npm
+- Google Gemini API Key ([Get one free at Google AI Studio](https://aistudio.google.com/))
 
 ---
 
-## Running with Docker Compose
-
-To build and start both the frontend and backend with Docker:
+### 1. Clone & Configure Environment
 
 ```bash
-docker compose up --build
+git clone https://github.com/rn-harsh04/AI-Study-Assistant.git
+cd AI-Study-Assistant
+
+# Create backend environment configuration
+cat <<EOF > backend/.env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_CHAT_MODEL=gemini-3.6-flash
+GEMINI_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+EOF
 ```
 
-Access the application:
-- **Web UI**: `http://localhost:5173`
-- **Backend API**: `http://localhost:8000/api/v1`
+---
+
+### 2. Run the Backend (FastAPI)
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Start FastAPI server on port 8000
+uvicorn app.main:app --reload --port 8000
+```
+Backend API will be live at `http://127.0.0.1:8000` with interactive docs at `http://127.0.0.1:8000/docs`.
 
 ---
 
-## Environment Variables
+### 3. Run the Frontend (React + Vite)
 
-| Variable | Scope | Default | Description |
-|---|---|---|---|
-| `GEMINI_API_KEY` | Backend | *(Required)* | Google Gemini API key from Google AI Studio |
-| `GEMINI_CHAT_MODEL` | Backend | `gemini-2.5-flash` | LLM for chat explanations, quizzes, and vision parsing |
-| `GEMINI_EMBEDDING_MODEL` | Backend | `gemini-embedding-001` | Embedding model for semantic vector indexing |
-| `DATA_DIR` | Backend | `data` | Directory for persisted uploads, metadata, and FAISS vectors |
-| `ALLOWED_ORIGINS` | Backend | `*` | Allowed CORS origins |
-| `VITE_API_BASE_URL` | Frontend | `/api/v1` | Base URL for API requests (defaults to relative `/api/v1`) |
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
+Open `http://localhost:5173` in your browser.
 
 ---
 
-## API Endpoints
+## 🐳 Docker Deployment
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/v1/health` | Health check endpoint |
-| `GET` | `/api/v1/documents` | List all uploaded documents and their processing status |
-| `POST` | `/api/v1/documents/upload` | Upload and trigger asynchronous document indexing |
-| `POST` | `/api/v1/chat` | Query the RAG pipeline in `explain` or `quiz` mode |
-| `POST` | `/api/v1/debug/retrieve` | Inspect raw vector search hits and relevance scores |
+You can run the entire full-stack application inside a single production-ready multi-stage Docker container:
+
+```bash
+# Build Docker image
+docker build -t studyassistant .
+
+# Run container
+docker run -p 8000:8000 -e GEMINI_API_KEY="your_api_key_here" studyassistant
+```
+
+Access the app at `http://localhost:8000`.
+
+---
+
+## ☁️ Deploying to Render
+
+This repository includes a native `Dockerfile` and `render.yaml` configuration for 1-click deployment on Render:
+
+1. Push this repository to GitHub.
+2. In [Render Dashboard](https://dashboard.render.com/):
+   - Click **New +** ➔ **Web Service**.
+   - Connect your `AI-Study-Assistant` repository.
+   - Runtime: **Docker** (Root directory: `.`).
+   - Add Environment Variable:
+     - `GEMINI_API_KEY`: *(Your Google AI Studio API Key)*
+3. Click **Deploy Web Service**. Render builds the React frontend, packages the Python backend with FastEmbed & FAISS, and serves the full-stack app on a public HTTPS URL.
+
+---
+
+## 🧪 Testing
+
+Run the automated test suite covering health checks, document indexing, RAG retrieval, quiz generation, flashcard creation, and Anki/CSV exports:
+
+```bash
+cd backend
+PYTHONPATH=. ./venv/bin/python tests/test_api.py
+```
+
+---
+
+## 📄 License
+MIT License. Built for education and research.

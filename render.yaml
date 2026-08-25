@@ -10,8 +10,8 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_CHAT_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.6-flash
       - key: GEMINI_EMBEDDING_MODEL
-        value: gemini-embedding-001
+        value: BAAI/bge-small-en-v1.5
       - key: DATA_DIR
-        value: data
+        value: /app/data

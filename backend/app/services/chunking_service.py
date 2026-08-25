@@ -37,6 +37,7 @@ class ChunkingService:
                             "document_id": document.id,
                             "filename": document.filename,
                             "stored_path": document.stored_path,
+                            "session_id": document.session_id,
                             "chunk_id": chunk_index,
                             "page_number": page.page_number,
                         },

@@ -1,14 +1,14 @@
 import { useState } from "react";
-import type { DocumentRecord } from "../lib/api";
 import UploadPanel from "./UploadPanel";
+import { type DocumentRecord, type ChatMode } from "../lib/api";
 
 type DocumentsPanelProps = {
   documents: DocumentRecord[];
   activeDocument: DocumentRecord | null;
   onSelectDocument: (doc: DocumentRecord | null) => void;
-  onDeleteDocument: (docId: string) => Promise<void>;
-  onUploaded: (doc: DocumentRecord) => void;
-  onNavigateToChat: (mode?: "explain" | "quiz") => void;
+  onDeleteDocument: (id: string) => Promise<void>;
+  onUploaded: (document: DocumentRecord) => void;
+  onNavigateToChat: (mode?: ChatMode) => void;
 };
 
 export default function DocumentsPanel({
@@ -19,160 +19,152 @@ export default function DocumentsPanel({
   onUploaded,
   onNavigateToChat,
 }: DocumentsPanelProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const readyDocs = documents.filter((d) => d.status === "ready");
+  const totalChunks = readyDocs.reduce((acc, d) => acc + d.chunk_count, 0);
 
   async function handleDelete(id: string) {
     setDeletingId(id);
     try {
       await onDeleteDocument(id);
-      setConfirmDeleteId(null);
     } finally {
       setDeletingId(null);
+      setConfirmDeleteId(null);
     }
   }
 
-  function formatTime(iso: string) {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return iso;
+  function getStatusBadge(status: string) {
+    switch (status) {
+      case "ready":
+        return <span className="badge badge-success"><span className="badge-dot" aria-hidden="true"></span> Ready</span>;
+      case "processing":
+        return <span className="badge badge-warning"><span className="spinner-mini" aria-hidden="true"></span> Indexing</span>;
+      case "failed":
+        return <span className="badge badge-danger"><span className="badge-dot" aria-hidden="true"></span> Failed</span>;
+      default:
+        return <span className="badge badge-count">{status}</span>;
     }
-  }
-
-  function getFileIcon(filename: string) {
-    const ext = filename.split(".").pop()?.toLowerCase();
-    if (ext === "pdf") return "📄";
-    if (["png", "jpg", "jpeg", "webp"].includes(ext || "")) return "🖼️";
-    return "📝";
   }
 
   return (
-    <div className="documents-container stack-lg">
+    <div className="stack-lg">
       <div className="grid-split">
-        {/* Upload Card */}
+        {/* Upload Form Card */}
         <UploadPanel onUploaded={onUploaded} />
 
         {/* Overview Stats Card */}
-        <div className="card overview-card">
+        <div className="card overview-card stack">
           <div className="section-heading">
-            <span className="eyebrow">Knowledge Base Stats</span>
-            <h2>Document Overview</h2>
+            <span className="eyebrow">Vector Knowledge Base</span>
+            <h2>Knowledge Base Overview</h2>
+            <p className="muted">All uploaded study materials are indexed into FAISS vector embeddings.</p>
           </div>
+
           <div className="stats-grid">
             <div className="stat-box">
               <span className="stat-number">{documents.length}</span>
-              <span className="stat-label">Total Documents</span>
+              <span className="stat-label">Total Files</span>
             </div>
             <div className="stat-box">
-              <span className="stat-number">
-                {documents.reduce((acc, d) => acc + (d.chunk_count || 0), 0)}
-              </span>
-              <span className="stat-label">Indexed Chunks</span>
+              <span className="stat-number">{readyDocs.length}</span>
+              <span className="stat-label">Ready</span>
             </div>
             <div className="stat-box">
-              <span className="stat-number">
-                {documents.filter((d) => d.status === "ready").length}
-              </span>
-              <span className="stat-label">Ready for RAG</span>
+              <span className="stat-number">{totalChunks}</span>
+              <span className="stat-label">Vector Chunks</span>
             </div>
           </div>
+
           <div className="overview-actions">
-            <button
-              type="button"
-              className={`chip chip-lg ${!activeDocument ? "active" : ""}`}
-              onClick={() => onSelectDocument(null)}
-            >
-              🌐 Search Across All Documents
-            </button>
+            {activeDocument ? (
+              <div className="active-focus-banner">
+                <span>🎯 Active Focus: <strong>{activeDocument.filename}</strong></span>
+                <button
+                  type="button"
+                  className="btn-action"
+                  onClick={() => onSelectDocument(null)}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="chip chip-lg"
+                onClick={() => onSelectDocument(null)}
+              >
+                🌐 Scope: Searching across all {readyDocs.length} ready documents
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Document Library Section */}
-      <section className="card library-card">
+      {/* Indexed Documents Library Grid */}
+      <section className="card library-card" aria-label="Indexed Documents Library">
         <div className="library-header">
           <div>
-            <span className="eyebrow">Library</span>
-            <h2>Indexed Study Materials</h2>
+            <h3>Indexed Documents Library</h3>
+            <p className="muted">Manage your uploaded materials, select active context, or remove old files.</p>
           </div>
-          <span className="badge badge-count">{documents.length} Total</span>
+          <span className="badge badge-count">{documents.length} document{documents.length === 1 ? "" : "s"}</span>
         </div>
 
         {documents.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-icon">📂</span>
-            <h3>No documents in your library yet</h3>
-            <p className="muted">
-              Upload a PDF lecture slide, study notes, or diagrams above to start asking questions or generating practice quizzes.
-            </p>
+            <span className="empty-icon" aria-hidden="true">📂</span>
+            <h4>No documents uploaded yet</h4>
+            <p className="muted">Upload your first PDF, lecture slides, or notes above to begin studying.</p>
           </div>
         ) : (
           <div className="document-grid">
             {documents.map((doc) => {
-              const isActive = activeDocument?.id === doc.id;
+              const isSelected = activeDocument?.id === doc.id;
               const isDeleting = deletingId === doc.id;
-              const isConfirming = confirmDeleteId === doc.id;
 
               return (
-                <div
+                <article
                   key={doc.id}
-                  className={`doc-card ${isActive ? "doc-card-active" : ""}`}
+                  className={`doc-card ${isSelected ? "doc-card-active" : ""}`}
                 >
                   <div className="doc-card-header">
-                    <span className="doc-type-icon">{getFileIcon(doc.filename)}</span>
+                    <div className="doc-type-icon" aria-hidden="true">
+                      {doc.filename.endsWith(".pdf") ? "📕" : doc.filename.endsWith(".txt") ? "📝" : "🖼️"}
+                    </div>
                     <div className="doc-title-box">
-                      <h4 className="doc-title" title={doc.filename}>
-                        {doc.filename}
-                      </h4>
-                      <span className="doc-time">{formatTime(doc.created_at)}</span>
+                      <h4 className="doc-title" title={doc.filename}>{doc.filename}</h4>
+                      <span className="doc-time">
+                        {new Date(doc.created_at).toLocaleDateString()} at {new Date(doc.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
                     </div>
                   </div>
 
                   <div className="doc-badges">
-                    {doc.status === "ready" && (
-                      <span className="badge badge-success">
-                        <span className="badge-dot"></span> Ready • {doc.chunk_count} chunks
-                      </span>
-                    )}
-                    {doc.status === "processing" && (
-                      <span className="badge badge-warning">
-                        <span className="spinner-mini"></span> Indexing...
-                      </span>
-                    )}
-                    {doc.status === "failed" && (
-                      <span className="badge badge-danger">
-                        Failed to index
-                      </span>
-                    )}
-                    {isActive && (
-                      <span className="badge badge-primary">Active Context</span>
+                    {getStatusBadge(doc.status)}
+                    {doc.chunk_count > 0 && (
+                      <span className="badge badge-primary">{doc.chunk_count} chunks</span>
                     )}
                   </div>
 
-                  {doc.error_message ? (
-                    <p className="doc-error-msg">{doc.error_message}</p>
-                  ) : null}
+                  {doc.error_message && (
+                    <p className="doc-error-msg" role="alert">⚠️ {doc.error_message}</p>
+                  )}
 
                   <div className="doc-card-footer">
                     <div className="doc-main-actions">
                       <button
                         type="button"
-                        className={`btn-action ${isActive ? "btn-active" : ""}`}
+                        className={`btn-action ${isSelected ? "btn-action-active" : ""}`}
                         onClick={() => {
-                          onSelectDocument(doc);
+                          onSelectDocument(isSelected ? null : doc);
                           onNavigateToChat("explain");
                         }}
                         disabled={doc.status !== "ready"}
-                        title="Chat with this document"
+                        aria-label={`Ask questions about ${doc.filename}`}
                       >
-                        💬 Explain
+                        💬 Chat
                       </button>
                       <button
                         type="button"
@@ -182,46 +174,47 @@ export default function DocumentsPanel({
                           onNavigateToChat("quiz");
                         }}
                         disabled={doc.status !== "ready"}
-                        title="Generate quiz from this document"
+                        aria-label={`Generate quiz from ${doc.filename}`}
                       >
                         🎯 Quiz
                       </button>
                     </div>
 
-                    <div className="doc-delete-box">
-                      {isConfirming ? (
-                        <div className="confirm-delete-row">
-                          <span className="confirm-label">Delete?</span>
-                          <button
-                            type="button"
-                            className="btn-delete-confirm"
-                            onClick={() => handleDelete(doc.id)}
-                            disabled={isDeleting}
-                          >
-                            {isDeleting ? "..." : "Yes"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-delete-cancel"
-                            onClick={() => setConfirmDeleteId(null)}
-                            disabled={isDeleting}
-                          >
-                            No
-                          </button>
-                        </div>
-                      ) : (
+                    {confirmDeleteId === doc.id ? (
+                      <div className="confirm-delete-row">
+                        <span className="confirm-label">Delete?</span>
                         <button
                           type="button"
-                          className="btn-delete"
-                          onClick={() => setConfirmDeleteId(doc.id)}
-                          title="Remove document from library"
+                          className="btn-delete-confirm"
+                          onClick={() => handleDelete(doc.id)}
+                          disabled={isDeleting}
+                          aria-label={`Confirm delete of ${doc.filename}`}
                         >
-                          🗑️
+                          {isDeleting ? "..." : "Yes"}
                         </button>
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          className="btn-delete-cancel"
+                          onClick={() => setConfirmDeleteId(null)}
+                          disabled={isDeleting}
+                          aria-label="Cancel deletion"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-delete"
+                        onClick={() => setConfirmDeleteId(doc.id)}
+                        title="Delete document and vector embeddings"
+                        aria-label={`Delete ${doc.filename}`}
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>

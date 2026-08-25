@@ -1,4 +1,6 @@
 import { FormEvent, useMemo, useRef, useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import SourcesList from "./SourcesList";
 import {
   askQuestion,
@@ -24,7 +26,7 @@ type ChatPanelProps = {
   activeDocument: DocumentRecord | null;
   allDocuments: DocumentRecord[];
   onSelectDocument: (doc: DocumentRecord | null) => void;
-  initialMode?: ChatMode;
+  mode: ChatMode;
   onSwitchToDocs: () => void;
 };
 
@@ -33,21 +35,15 @@ export default function ChatPanel({
   activeDocument,
   allDocuments,
   onSelectDocument,
-  initialMode = "explain",
+  mode,
   onSwitchToDocs,
 }: ChatPanelProps) {
-  const [mode, setMode] = useState<ChatMode>(initialMode);
-
-  useEffect(() => {
-    setMode(initialMode);
-  }, [initialMode]);
-
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "👋 Welcome! I am your AI Study Assistant. Upload your study materials, then ask for grounded explanations, summaries, or practice quizzes.",
+        "👋 **Welcome to your AI Study Assistant!**\n\nUpload lecture slides, textbooks, or study notes, then ask questions to get grounded explanations, summaries, or interactive practice quizzes.",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -73,7 +69,7 @@ export default function ChatPanel({
   const quizTemplates = [
     "Generate a 5-question practice quiz from the uploaded document.",
     "Create a challenging multiple choice quiz testing core concepts.",
-    "Quiz me on key terms and definitions.",
+    "Quiz me on key terms and definitions with explanations.",
   ];
 
   const currentTemplates = mode === "quiz" ? quizTemplates : explainTemplates;
@@ -90,6 +86,18 @@ export default function ChatPanel({
   function applyTemplate(template: string) {
     setQuestion(template);
     textareaRef.current?.focus();
+  }
+
+  function clearHistory() {
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content: "Chat cleared. Ready for your next question or quiz prompt!",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      },
+    ]);
+    setActiveQuiz(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -178,48 +186,51 @@ export default function ChatPanel({
 
   return (
     <div className="chat-layout">
-      {/* Chat Header & Document Scope Selector */}
+      {/* Top Context & Controls Bar */}
       <div className="chat-top-bar card">
         <div className="chat-top-info">
-          <div className="mode-toggle-group" role="tablist">
-            <button
-              type="button"
-              className={`mode-btn ${mode === "explain" ? "mode-btn-active" : ""}`}
-              onClick={() => setMode("explain")}
-            >
-              💬 Explain & Chat
-            </button>
-            <button
-              type="button"
-              className={`mode-btn ${mode === "quiz" ? "mode-btn-active" : ""}`}
-              onClick={() => setMode("quiz")}
-            >
-              🎯 Practice Quiz
-            </button>
+          <div className="chat-mode-indicator">
+            <span className="mode-indicator-pill">
+              {mode === "quiz" ? "🎯 Quiz Mode Active" : "💬 Explain & Chat Mode Active"}
+            </span>
           </div>
 
-          <div className="document-scope-box">
-            <label className="scope-label">Context:</label>
-            <select
-              className="scope-select"
-              value={activeDocument?.id || "all"}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === "all") {
-                  onSelectDocument(null);
-                } else {
-                  const found = allDocuments.find((d) => d.id === val);
-                  if (found) onSelectDocument(found);
-                }
-              }}
+          <div className="chat-top-actions">
+            <div className="document-scope-box">
+              <label htmlFor="doc-scope-select" className="scope-label">Context:</label>
+              <select
+                id="doc-scope-select"
+                className="scope-select"
+                aria-label="Select study document context scope"
+                value={activeDocument?.id || "all"}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "all") {
+                    onSelectDocument(null);
+                  } else {
+                    const found = allDocuments.find((d) => d.id === val);
+                    if (found) onSelectDocument(found);
+                  }
+                }}
+              >
+                <option value="all">🌐 All Indexed Documents ({documentCount})</option>
+                {allDocuments.map((doc) => (
+                  <option key={doc.id} value={doc.id} disabled={doc.status !== "ready"}>
+                    {doc.filename} {doc.status !== "ready" ? `(${doc.status})` : `(${doc.chunk_count} chunks)`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              className="btn-clear-chat"
+              onClick={clearHistory}
+              title="Clear conversation"
+              aria-label="Clear chat conversation"
             >
-              <option value="all">🌐 All Indexed Documents ({documentCount})</option>
-              {allDocuments.map((doc) => (
-                <option key={doc.id} value={doc.id} disabled={doc.status !== "ready"}>
-                  {doc.filename} {doc.status !== "ready" ? `(${doc.status})` : `(${doc.chunk_count} chunks)`}
-                </option>
-              ))}
-            </select>
+              🧹 Clear
+            </button>
           </div>
         </div>
 
@@ -233,11 +244,11 @@ export default function ChatPanel({
         )}
       </div>
 
-      {/* Main Conversation Feed */}
-      <div className="messages-feed" aria-live="polite">
+      {/* Messages Feed */}
+      <div className="messages-feed" aria-live="polite" aria-label="Conversation history">
         {messages.map((msg) => (
           <div key={msg.id} className={`message-row message-${msg.role}`}>
-            <div className="message-avatar">
+            <div className="message-avatar" aria-hidden="true">
               {msg.role === "assistant" ? "🤖" : "👤"}
             </div>
             <div className="message-bubble">
@@ -248,10 +259,10 @@ export default function ChatPanel({
                 <span className="message-time">{msg.timestamp}</span>
               </div>
 
-              <div className="message-content">
-                {msg.content.split("\n").map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
+              <div className="message-content markdown-body">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.content}
+                </ReactMarkdown>
               </div>
 
               {msg.role === "assistant" && msg.id !== "welcome" && (
@@ -261,6 +272,7 @@ export default function ChatPanel({
                     className="btn-msg-action"
                     onClick={() => copyMessage(msg.content)}
                     title="Copy to clipboard"
+                    aria-label="Copy response to clipboard"
                   >
                     📋 Copy
                   </button>
@@ -281,10 +293,10 @@ export default function ChatPanel({
         ))}
 
         {busy && (
-          <div className="message-row message-assistant">
-            <div className="message-avatar">🤖</div>
+          <div className="message-row message-assistant" aria-live="assertive">
+            <div className="message-avatar" aria-hidden="true">🤖</div>
             <div className="message-bubble thinking-bubble">
-              <span className="spinner-mini"></span>
+              <span className="spinner-mini" aria-hidden="true"></span>
               <span>
                 {mode === "quiz"
                   ? "Generating interactive quiz from your study materials..."
@@ -299,7 +311,7 @@ export default function ChatPanel({
 
       {/* Active Interactive Quiz Card */}
       {activeQuiz && (
-        <section className="card active-quiz-card">
+        <section className="card active-quiz-card" aria-label="Interactive practice quiz">
           <div className="quiz-card-header">
             <div>
               <span className="eyebrow">Interactive Assessment</span>
@@ -346,8 +358,9 @@ export default function ChatPanel({
                           className={optClass}
                           onClick={() => chooseOption(qIndex, optIndex)}
                           disabled={quizSubmitted}
+                          aria-pressed={selected}
                         >
-                          <span className="opt-letter">
+                          <span className="opt-letter" aria-hidden="true">
                             {String.fromCharCode(65 + optIndex)}
                           </span>
                           <span className="opt-label">{opt}</span>
@@ -357,7 +370,7 @@ export default function ChatPanel({
                   </div>
 
                   {quizSubmitted && (
-                    <div className={`answer-feedback ${isCorrect ? "feedback-success" : "feedback-danger"}`}>
+                    <div className={`answer-feedback ${isCorrect ? "feedback-success" : "feedback-danger"}`} role="status">
                       <strong>{isCorrect ? "✅ Correct!" : "❌ Incorrect."}</strong>{" "}
                       {q.explanation && <span>{q.explanation}</span>}
                     </div>
@@ -401,7 +414,7 @@ export default function ChatPanel({
       )}
 
       {/* Suggested Prompt Chips */}
-      <div className="prompt-chips-tray">
+      <div className="prompt-chips-tray" aria-label="Suggested prompt templates">
         <span className="chips-label">💡 Suggested prompts:</span>
         <div className="chips-scroll">
           {currentTemplates.map((template) => (
@@ -418,8 +431,12 @@ export default function ChatPanel({
       </div>
 
       {/* Input Box Form */}
-      <form className="chat-input-form card" onSubmit={handleSubmit}>
+      <form className="chat-input-form card" onSubmit={handleSubmit} aria-label="Chat input form">
+        <label htmlFor="chat-prompt-input" className="sr-only" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", border: 0 }}>
+          Study Assistant Prompt Input
+        </label>
         <textarea
+          id="chat-prompt-input"
           ref={textareaRef}
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
@@ -455,7 +472,7 @@ export default function ChatPanel({
         </div>
       </form>
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
     </div>
   );
 }

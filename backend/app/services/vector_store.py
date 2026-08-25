@@ -63,7 +63,6 @@ class VectorStoreService:
             if self._store is None or not hasattr(self._store, "docstore"):
                 return
             try:
-                # Find all internal docstore IDs tagged with this document_id
                 docstore_dict = getattr(self._store.docstore, "_dict", {})
                 ids_to_delete = [
                     doc_id for doc_id, doc in docstore_dict.items()
@@ -76,26 +75,27 @@ class VectorStoreService:
             except Exception as exc:
                 logger.error(f"Error deleting vectors for document {document_id}: {exc}")
 
-    def get_document_chunks(self, document_id: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Retrieve sequential / representative chunks for a given document (e.g. for overview/summary)."""
+    def get_document_chunks(self, document_id: str, limit: int = 10, session_id: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             if self._store is None or not hasattr(self._store, "docstore"):
                 return []
             docstore_dict = getattr(self._store.docstore, "_dict", {})
-            matching_docs = [
-                doc for doc in docstore_dict.values()
-                if str(getattr(doc, "metadata", {}).get("document_id", "")) == document_id
-            ]
+            matching_docs = []
+            for doc in docstore_dict.values():
+                meta = getattr(doc, "metadata", {})
+                if str(meta.get("document_id", "")) == document_id:
+                    if session_id and meta.get("session_id") and meta.get("session_id") != session_id:
+                        continue
+                    matching_docs.append(doc)
+
             if not matching_docs:
                 return []
             
-            # Sort by chunk_id
             matching_docs.sort(key=lambda d: int(d.metadata.get("chunk_id", 0)))
             
             if len(matching_docs) <= limit:
                 selected = matching_docs
             else:
-                # Sample evenly across the entire document (head, middle, tail)
                 step = len(matching_docs) / float(limit)
                 selected = [matching_docs[int(i * step)] for i in range(limit)]
 
@@ -111,18 +111,16 @@ class VectorStoreService:
     def search(
         self,
         query: str,
-        top_k: int,
-        min_relevance_score: float,
+        top_k: int = 6,
+        min_relevance_score: float = 0.25,
         document_id: str | None = None,
+        session_id: str | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             if self._store is None:
                 return []
 
-            # For broad summary or overview questions on a document
             is_broad_query = any(w in query.lower() for w in ["summarize", "summary", "overview", "main ideas", "what is this", "quiz", "tell me about"])
-            
-            # Pull a generous candidate pool so filtering by document_id works cleanly on big stores
             search_k = max(top_k * 15, 60) if document_id else max(top_k * 4, 30)
             
             try:
@@ -137,6 +135,11 @@ class VectorStoreService:
             metadata = dict(document.metadata)
             if document_id and str(metadata.get("document_id", "")) != document_id:
                 continue
+            if session_id:
+                doc_session = metadata.get("session_id")
+                if doc_session and doc_session != session_id:
+                    continue
+
             all_candidates.append(
                 {
                     "content": document.page_content,
@@ -145,24 +148,19 @@ class VectorStoreService:
                 }
             )
 
-        # 1. First attempt: filter by min_relevance_score
         filtered_matches = [item for item in all_candidates if item["score"] >= min_relevance_score]
         
-        # 2. If filtered matches give enough results, return top_k
         if len(filtered_matches) >= min(top_k, 3):
             matches = filtered_matches[:top_k]
         elif all_candidates:
-            # 3. Fallback: if min_relevance_score was too strict, take best available candidates
             matches = all_candidates[:top_k]
         elif document_id:
-            # 4. If search query missed (e.g., broad summary), pull representative chunks from the document
-            matches = self.get_document_chunks(document_id, limit=top_k)
+            matches = self.get_document_chunks(document_id, limit=top_k, session_id=session_id)
         else:
             matches = []
 
-        # If broad query on a specific document, augment with representative chunks if needed
         if is_broad_query and document_id and len(matches) < top_k:
-            overview_chunks = self.get_document_chunks(document_id, limit=top_k - len(matches))
+            overview_chunks = self.get_document_chunks(document_id, limit=top_k - len(matches), session_id=session_id)
             existing_contents = {m["content"] for m in matches}
             for oc in overview_chunks:
                 if oc["content"] not in existing_contents:

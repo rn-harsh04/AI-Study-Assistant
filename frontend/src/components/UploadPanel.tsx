@@ -55,7 +55,7 @@ export default function UploadPanel({ onUploaded }: UploadPanelProps) {
   }
 
   return (
-    <form ref={formRef} className="card upload-card stack" onSubmit={handleSubmit}>
+    <form ref={formRef} className="card upload-card stack" onSubmit={handleSubmit} aria-label="Upload study materials">
       <div className="section-heading">
         <span className="eyebrow">Ingest Material</span>
         <h2>Upload Document</h2>
@@ -63,13 +63,16 @@ export default function UploadPanel({ onUploaded }: UploadPanelProps) {
       </div>
 
       <label
+        htmlFor="document-file-input"
         className={`file-drop ${isDragging ? "file-drop-dragging" : ""} ${file ? "file-drop-has-file" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         <input
+          id="document-file-input"
           type="file"
+          aria-label="Select PDF, text, or image study document"
           accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/png,image/jpeg,image/webp"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
@@ -77,7 +80,7 @@ export default function UploadPanel({ onUploaded }: UploadPanelProps) {
           }}
         />
         <div className="drop-content">
-          <span className="drop-icon">{file ? "📄" : "📤"}</span>
+          <span className="drop-icon" aria-hidden="true">{file ? "📄" : "📤"}</span>
           <div className="drop-text">
             {file ? (
               <>
@@ -97,15 +100,15 @@ export default function UploadPanel({ onUploaded }: UploadPanelProps) {
       <button type="submit" className="btn-primary" disabled={!file || busy}>
         {busy ? (
           <>
-            <span className="spinner-mini"></span> Uploading & Processing...
+            <span className="spinner-mini" aria-hidden="true"></span> Uploading & Processing...
           </>
         ) : (
           "🚀 Upload & Index"
         )}
       </button>
 
-      {successMsg && <div className="alert alert-success">{successMsg}</div>}
-      {error && <div className="alert alert-danger">{error}</div>}
+      {successMsg && <div className="alert alert-success" role="status">{successMsg}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
     </form>
   );
 }
