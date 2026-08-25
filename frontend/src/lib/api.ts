@@ -49,7 +49,11 @@ export type DocumentUploadResponse = {
   document: DocumentRecord;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL =
+  typeof envBaseUrl === "string" && envBaseUrl.trim().length > 0
+    ? envBaseUrl.trim().replace(/\/+$/, "")
+    : "/api/v1";
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -57,8 +61,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
     try {
       const parsed = JSON.parse(text) as { detail?: string };
       throw new Error(parsed.detail || text || "Request failed");
-    } catch {
-      throw new Error(text || "Request failed");
+    } catch (e) {
+      if (e instanceof Error && e.message !== text) {
+        throw e;
+      }
+      throw new Error(text || `Request failed with status ${response.status}`);
     }
   }
   return response.json() as Promise<T>;
@@ -96,4 +103,3 @@ export async function askQuestion(
   });
   return parseResponse<ChatResponse>(response);
 }
-

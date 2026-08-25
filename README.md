@@ -1,98 +1,128 @@
 # AI Study Assistant
 
-An AI study assistant that turns uploaded PDFs into a searchable RAG knowledge base. It supports text, PDF images, quiz generation, and grounded explanations powered by FastAPI, LangChain, LangGraph, Gemini, FAISS, and React/Vite.
+An AI study assistant that turns uploaded PDFs into a searchable RAG knowledge base. It supports text extraction, PDF images, practice quiz generation, and grounded explanations powered by FastAPI, LangChain, LangGraph, Google Gemini, FAISS, and React/Vite.
+
+---
+
+## Deploy to Render (1-Click Blueprint)
+
+This repository includes a ready-to-use Render Blueprint (`render.yaml`).
+
+### Deployment Steps:
+1. Push this repository to your **GitHub** or **GitLab** account.
+2. Go to your [Render Dashboard](https://dashboard.render.com/).
+3. Click **New +** in the top right and select **Blueprint**.
+4. Connect your repository. Render will automatically detect `render.yaml`.
+5. Under Environment Variables, enter your **`GEMINI_API_KEY`** (get one at [Google AI Studio](https://aistudio.google.com/)).
+6. Click **Apply**.
+
+Render will automatically build the frontend, install backend dependencies, and launch your live application with health checks enabled!
+
+---
 
 ## Features
-- Upload PDF, text, and image files.
-- Extract PDF text and PDF images.
-- Generate searchable descriptions for images with a vision model.
-- Chunk and embed content into FAISS for semantic retrieval.
-- Ask for explanations, summaries, or quizzes from the uploaded document.
-- Return source snippets so answers stay traceable.
-- Show a simple flow: upload once, then chat.
+- **Multimodal Document Ingestion**: Upload PDF, plain text, and image files.
+- **Smart Vision Extraction**: Extracts embedded PDF images and generates searchable descriptions with Gemini Vision.
+- **Semantic RAG Pipeline**: Chunks and embeds content into FAISS for fast similarity retrieval.
+- **Explanations & Quizzes**: Ask for conceptual explanations, summaries, or generate multiple-choice quizzes with answer keys.
+- **Traceable Answers**: Displays source snippets and chunk references for transparency.
+- **Single Full-Stack Service**: The FastAPI backend serves the React production SPA directly with complete client-side routing.
+
+---
 
 ## Project Structure
-- `backend/` FastAPI app, RAG pipeline, document parsing, embeddings, and vector store.
-- `frontend/` React + Vite UI for upload and chat.
-- `data/` persisted uploads, metadata, and FAISS index files.
-
-## Setup
-1. Copy `backend/.env.example` to `backend/.env` and set `GEMINI_API_KEY`.
-2. Copy `frontend/.env.example` to `frontend/.env` if you want a custom API base URL.
-3. Install frontend dependencies:
-
-```bash
-cd frontend
-npm install
+```
+studyassistant/
+├── backend/                  # FastAPI app & RAG pipeline
+│   ├── app/
+│   │   ├── api/              # API routes (chat, documents, health, debug)
+│   │   ├── core/             # Configuration & dependency injection
+│   │   ├── rag/              # LangGraph RAG pipeline & state
+│   │   ├── schemas/          # Pydantic request/response models
+│   │   └── services/         # Document parsing, chunking, embedding, vector store
+│   ├── Dockerfile
+│   ├── pyproject.toml
+│   └── requirements.txt
+├── frontend/                 # React + Vite UI
+│   ├── src/                  # Components, API client, styles
+│   ├── package.json
+│   └── vite.config.ts
+├── render.yaml               # Render Blueprint configuration
+└── README.md
 ```
 
-4. Install backend dependencies if needed:
+---
 
-```bash
-cd backend
-pip install -r requirements.txt
-```
+## Local Development Setup
 
-5. Start the backend:
+### 1. Backend Setup
+1. Navigate to `backend/`:
+   ```bash
+   cd backend
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Configure your environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Set `GEMINI_API_KEY` in `backend/.env`.
+5. Start the FastAPI server:
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
 
-```bash
-cd backend
-uvicorn app.main:app --reload
-```
+### 2. Frontend Setup
+1. In a new terminal, navigate to `frontend/`:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Start the Vite dev server:
+   ```bash
+   npm run dev
+   ```
+3. Open `http://localhost:5173` in your browser. (The dev server automatically proxies `/api` requests to backend port 8000).
 
-6. Start the frontend:
+---
 
-```bash
-cd frontend
-npm run dev
-```
+## Running with Docker Compose
 
-## Docker
-Run both services with Docker Compose:
+To run both services in Docker containers:
 
-```bash
-cp backend/.env.example backend/.env
-docker compose up --build
-```
+1. Create `backend/.env` with your `GEMINI_API_KEY`.
+2. Run:
+   ```bash
+   docker compose up --build
+   ```
+3. Open `http://localhost:5173` in your browser.
 
-Then open:
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:8000/api/v1`
-
-Notes:
-- The backend container persists uploads and the FAISS index in `./data`.
-- The frontend image is built with the backend API URL baked in.
-- Make sure `GEMINI_API_KEY` is set in `backend/.env` before starting.
+---
 
 ## Environment Variables
-Backend (`backend/.env`):
-- `GEMINI_API_KEY` - required.
-- `GEMINI_CHAT_MODEL` - default: `gemini-2.5-flash`.
-- `GEMINI_EMBEDDING_MODEL` - default: `gemini-embedding-001`.
-- `ALLOWED_ORIGINS` - default: `http://localhost:5173`.
 
-Frontend (`frontend/.env`):
-- `VITE_API_BASE_URL` - default: `http://127.0.0.1:8000/api/v1`.
+| Variable | Scope | Default | Description |
+|---|---|---|---|
+| `GEMINI_API_KEY` | Backend | *(Required)* | Google Gemini API key |
+| `GEMINI_CHAT_MODEL` | Backend | `gemini-2.5-flash` | Chat and vision model |
+| `GEMINI_EMBEDDING_MODEL` | Backend | `gemini-embedding-001` | Text embedding model |
+| `DATA_DIR` | Backend | `data` | Directory for uploads and FAISS index |
+| `ALLOWED_ORIGINS` | Backend | `*` | Allowed CORS origins |
+| `VITE_API_BASE_URL` | Frontend | `/api/v1` | Backend API base URL (defaults to relative `/api/v1`) |
 
-## API
-- `GET /api/v1/health` - health check.
-- `GET /api/v1/documents` - list uploaded documents.
-- `POST /api/v1/documents/upload` - upload and index a document.
-- `POST /api/v1/chat` - ask a grounded question or request a quiz.
-- `POST /api/v1/debug/retrieve` - inspect retrieval results for debugging.
+---
 
-## How It Works
-1. Upload a file.
-2. The backend saves it and starts parsing/indexing.
-3. PDF text and image descriptions are split into chunks.
-4. Chunks are embedded and stored in FAISS.
-5. Chat requests retrieve the best matching chunks.
-6. The LLM answers only from retrieved context.
-7. If the answer is not found, the assistant returns: `I don't know`.
+## API Endpoints
 
-## Notes
-- Chat is intentionally simple and stateless.
-- Image content is searchable through generated descriptions.
-- The UI is designed for a single-document upload-to-chat flow.
-- Indexing can take a few moments for large PDFs because image description and embedding are done during ingestion.
-
+- `GET /api/v1/health` - Health check & status.
+- `GET /api/v1/documents` - List all indexed documents.
+- `POST /api/v1/documents/upload` - Upload and index a document.
+- `POST /api/v1/chat` - Ask a grounded question or generate a quiz.
+- `POST /api/v1/debug/retrieve` - Inspect vector store retrieval for debugging.

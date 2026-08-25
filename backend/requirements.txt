@@ -10,4 +10,4 @@ faiss-cpu
 pypdf
 pillow
 pytesseract
-
+google-generativeai
