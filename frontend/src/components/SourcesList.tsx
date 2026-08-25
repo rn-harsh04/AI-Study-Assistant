@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SourceChunk } from "../lib/api";
 
 type SourcesListProps = {
@@ -5,32 +6,47 @@ type SourcesListProps = {
 };
 
 export default function SourcesList({ sources }: SourcesListProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
   if (sources.length === 0) {
-    return (
-      <div className="sources">
-        <p className="muted">No sources yet. Answers will appear here once you ask a question.</p>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="sources">
-      <h3>Sources</h3>
-      <ul>
-        {sources.map((source) => (
-          <li key={`${source.document_id}-${source.chunk_id}`} className="source-item">
-            <div className="source-meta">
-              <strong>{source.filename}</strong>
-              <span>
-                chunk {source.chunk_id}
-                {source.page_number ? ` · page ${source.page_number}` : ""}
-                {source.score !== null ? ` · score ${source.score.toFixed(2)}` : ""}
-              </span>
-            </div>
-            <p>{source.excerpt}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <section className="sources-container">
+      <button
+        type="button"
+        className="sources-toggle-btn"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+      >
+        <span className="sources-toggle-title">
+          📌 Grounded Source References ({sources.length})
+        </span>
+        <span className="sources-toggle-arrow">{isOpen ? "▲ Hide" : "▼ Show"}</span>
+      </button>
+
+      {isOpen && (
+        <div className="sources-grid">
+          {sources.map((source, index) => (
+            <article key={`${source.document_id}-${source.chunk_id}-${index}`} className="source-card">
+              <div className="source-meta">
+                <span className="source-file">📄 {source.filename}</span>
+                {source.page_number && (
+                  <span className="source-page">Page {source.page_number}</span>
+                )}
+                <span className="source-chunk">Chunk #{source.chunk_id}</span>
+                {source.score !== null && source.score !== undefined && (
+                  <span className="source-score" title="Relevance Score">
+                    Score: {Math.round(source.score * 100)}%
+                  </span>
+                )}
+              </div>
+              <p className="source-text">{source.excerpt}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

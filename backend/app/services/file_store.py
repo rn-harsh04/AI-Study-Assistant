@@ -24,11 +24,14 @@ class DocumentRepository:
             self._documents = {}
             return
 
-        payload = json.loads(raw)
-        self._documents = {
-            item["id"]: DocumentRecord.model_validate(item)
-            for item in payload
-        }
+        try:
+            payload = json.loads(raw)
+            self._documents = {
+                item["id"]: DocumentRecord.model_validate(item)
+                for item in payload
+            }
+        except Exception:
+            self._documents = {}
 
     def _persist(self) -> None:
         self._metadata_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,3 +51,11 @@ class DocumentRepository:
             self._documents[record.id] = record
             self._persist()
             return record
+
+    def delete(self, document_id: str) -> bool:
+        with self._lock:
+            if document_id in self._documents:
+                del self._documents[document_id]
+                self._persist()
+                return True
+            return False

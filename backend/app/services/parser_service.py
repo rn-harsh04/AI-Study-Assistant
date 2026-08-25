@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
+import logging
 from pathlib import Path
+import hashlib
+
+logger = logging.getLogger("studyassistant.parser")
 
 
 @dataclass(slots=True)
@@ -24,124 +29,92 @@ class DocumentParser:
         return self._parse_text(file_path)
 
     def _parse_pdf(self, file_path: Path) -> list[ParsedPage]:
-        # Enhanced PDF parsing: extract page text and any embedded images.
-        # For images, attempt to get a short, searchable description using the
-        # configured vision model (Gemini). Failures are non-fatal (we keep text).
         from pypdf import PdfReader
-        from io import BytesIO
         from PIL import Image
-        import hashlib
 
         reader = PdfReader(str(file_path))
         pages: list[ParsedPage] = []
 
-        # configure generative vision client lazily
-        genai = None
-        model = None
+        # Configure generative vision client lazily if API key is provided
+        genai_model = None
         if self._api_key:
             try:
                 import google.generativeai as genai_pkg
 
                 genai_pkg.configure(api_key=self._api_key)
-                genai = genai_pkg
-                model = genai_pkg.GenerativeModel(self._vision_model)
-            except Exception:
-                genai = None
-                model = None
+                genai_model = genai_pkg.GenerativeModel(self._vision_model)
+            except Exception as exc:
+                logger.warning(f"Could not initialize Gemini vision model: {exc}")
+                genai_model = None
+
+        total_pages = len(reader.pages)
+        vision_calls_count = 0
+        MAX_VISION_CALLS = 5  # Cap vision calls per document to avoid 429 rate limits and long delays
 
         for index, page in enumerate(reader.pages, start=1):
-            # 1) extract textual content if present
+            # 1) Extract digital text
+            text = ""
             try:
-                text = page.extract_text() or ""
-            except Exception:
+                text = (page.extract_text() or "").strip()
+            except Exception as exc:
+                logger.warning(f"Error extracting text from page {index}: {exc}")
                 text = ""
-            if text and text.strip():
-                pages.append(ParsedPage(page_number=index, text=text.strip()))
 
-            # 2) extract images from the page. pypdf stores images in /Resources/XObject
-            try:
-                xobjects = page.get('/Resources', {}).get('/XObject', {})
-            except Exception:
-                xobjects = None
-
-            # pypdf offers page.images() helper in newer versions; fall back safely
-            images = []
-            try:
-                images = list(page.images) if hasattr(page, "images") else []
-            except Exception:
-                images = []
-
-            # If images list empty, try the XObject approach
-            if not images and xobjects:
+            # If page text is empty, check if OCR is available for scanned pages
+            if not text:
                 try:
-                    for name, obj in (xobjects.items() if hasattr(xobjects, 'items') else []):
-                        try:
-                            data = obj.get_data()
-                            images.append({"data": data})
-                        except Exception:
+                    import pytesseract
+                    if hasattr(page, "images") and page.images:
+                        for img in page.images:
+                            if hasattr(img, "data") and len(img.data) > 10000:
+                                pil_img = Image.open(BytesIO(img.data))
+                                ocr_text = pytesseract.image_to_string(pil_img).strip()
+                                if ocr_text:
+                                    text = f"{text}\n{ocr_text}".strip()
+                except Exception:
+                    pass
+
+            if text:
+                pages.append(ParsedPage(page_number=index, text=text))
+
+            # 2) Extract prominent images / diagrams for description (if vision calls remaining)
+            if vision_calls_count < MAX_VISION_CALLS and genai_model:
+                try:
+                    page_images = list(page.images) if hasattr(page, "images") else []
+                    for img in page_images:
+                        if vision_calls_count >= MAX_VISION_CALLS:
+                            break
+                        
+                        img_data = getattr(img, "data", None)
+                        if not img_data or len(img_data) < 5000:
+                            # Skip tiny icons / decorative elements (<5KB)
                             continue
+
+                        try:
+                            pil_img = Image.open(BytesIO(img_data))
+                            # Skip if image dimensions are too small to be a meaningful diagram
+                            if pil_img.width < 150 or pil_img.height < 150:
+                                continue
+
+                            prompt = (
+                                "Describe this diagram, chart, or image briefly (1-3 sentences). "
+                                "List any key labels or data points. Reply with plain text only."
+                            )
+                            response = genai_model.generate_content([prompt, pil_img])
+                            description = getattr(response, "text", "") or ""
+                            if description.strip():
+                                img_hash = hashlib.sha1(img_data).hexdigest()[:8]
+                                pages.append(
+                                    ParsedPage(
+                                        page_number=index,
+                                        text=f"[Diagram #{img_hash} on page {index}]: {description.strip()}",
+                                    )
+                                )
+                                vision_calls_count += 1
+                        except Exception as img_exc:
+                            logger.debug(f"Image vision processing skipped: {img_exc}")
                 except Exception:
-                    images = images
-
-            # process each image: generate a short description via vision LLM
-            for img_idx, img in enumerate(images, start=1):
-                img_bytes = None
-                try:
-                    # pypdf image entry may be an object with .data or dict with 'data'
-                    if isinstance(img, dict) and img.get("data"):
-                        img_bytes = img.get("data")
-                    elif hasattr(img, "data"):
-                        img_bytes = img.data
-                    elif hasattr(img, "get_data"):
-                        img_bytes = img.get_data()
-                except Exception:
-                    img_bytes = None
-
-                if not img_bytes:
-                    continue
-
-                # create a stable short id for the image
-                img_hash = hashlib.sha1(img_bytes).hexdigest()[:12]
-                description = None
-
-                # First try the vision LLM (if available)
-                if genai and model:
-                    try:
-                        pil_img = Image.open(BytesIO(img_bytes))
-                        prompt = (
-                            "Describe the image briefly (1-3 sentences), mention any labels, diagram elements, "
-                            "and extract any readable text. Reply with plain text only."
-                        )
-                        response = model.generate_content([prompt, pil_img])
-                        # model.generate_content may set .text or .candidates
-                        description = (getattr(response, "text", None) or "")
-                        if not description:
-                            # older responses may include candidates
-                            candidates = getattr(response, "candidates", None)
-                            if candidates:
-                                description = str(candidates[0].get("content", ""))
-                        description = (description or "").strip()
-                    except Exception:
-                        description = None
-
-                if not description:
-                    # as a graceful fallback, attempt to run OCR via pytesseract if available
-                    try:
-                        import pytesseract
-                        pil_img = Image.open(BytesIO(img_bytes))
-                        ocr = pytesseract.image_to_string(pil_img).strip()
-                        if ocr:
-                            description = f"Image with readable text: {ocr}"
-                    except Exception:
-                        description = None
-
-                if description:
-                    pages.append(
-                        ParsedPage(
-                            page_number=index,
-                            text=f"[Image-description #{img_hash}] {description}",
-                        )
-                    )
+                    pass
 
         return pages
 
@@ -162,14 +135,15 @@ class DocumentParser:
             image = Image.open(file_path)
             response = model.generate_content(
                 [
-                    "Extract all readable text from this image. Return only the extracted text. "
-                    "If there is no readable text, return EMPTY.",
+                    "Extract all readable text, notes, equations, and diagrams from this study image. "
+                    "Provide a clean structured transcript of the content. If completely unreadable, return EMPTY.",
                     image,
                 ]
             )
             content = (getattr(response, "text", "") or "").strip()
             if not content or content.upper() == "EMPTY":
                 return []
-            return [ParsedPage(page_number=None, text=content)]
-        except Exception:
+            return [ParsedPage(page_number=1, text=content)]
+        except Exception as exc:
+            logger.error(f"Image parsing error: {exc}")
             return []

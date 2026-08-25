@@ -3,7 +3,7 @@ export type DocumentRecord = {
   filename: string;
   stored_path: string;
   mime_type: string | null;
-  status: string;
+  status: "ready" | "processing" | "failed" | string;
   chunk_count: number;
   error_message: string | null;
   created_at: string;
@@ -17,16 +17,6 @@ export type SourceChunk = {
   page_number: number | null;
   score: number | null;
   excerpt: string;
-};
-
-export type ChatResponse = {
-  answer: string;
-  quiz: QuizPayload | null;
-  sources: SourceChunk[];
-  fallback: boolean;
-  retrieved_chunks: number;
-  confidence: number | null;
-  fallback_reason: string | null;
 };
 
 export type QuizQuestion = {
@@ -43,6 +33,16 @@ export type QuizPayload = {
 };
 
 export type ChatMode = "explain" | "quiz";
+
+export type ChatResponse = {
+  answer: string;
+  quiz: QuizPayload | null;
+  sources: SourceChunk[];
+  fallback: boolean;
+  retrieved_chunks: number;
+  confidence: number | null;
+  fallback_reason: string | null;
+};
 
 export type DocumentUploadResponse = {
   message: string;
@@ -77,6 +77,11 @@ export async function listDocuments(): Promise<DocumentRecord[]> {
   return payload.documents;
 }
 
+export async function getDocument(documentId: string): Promise<DocumentRecord> {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`);
+  return parseResponse<DocumentRecord>(response);
+}
+
 export async function uploadDocument(file: File): Promise<DocumentRecord> {
   const formData = new FormData();
   formData.append("file", file);
@@ -87,6 +92,13 @@ export async function uploadDocument(file: File): Promise<DocumentRecord> {
   });
   const payload = await parseResponse<DocumentUploadResponse>(response);
   return payload.document;
+}
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
+    method: "DELETE",
+  });
+  await parseResponse<{ message: string; document_id: string }>(response);
 }
 
 export async function askQuestion(

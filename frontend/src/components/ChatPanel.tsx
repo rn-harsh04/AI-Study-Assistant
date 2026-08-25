@@ -1,64 +1,91 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { askQuestion, type ChatMode, type ChatResponse, type DocumentRecord, type QuizPayload } from "../lib/api";
+import { FormEvent, useMemo, useRef, useState, useEffect } from "react";
 import SourcesList from "./SourcesList";
+import {
+  askQuestion,
+  type ChatMode,
+  type ChatResponse,
+  type DocumentRecord,
+  type QuizPayload,
+} from "../lib/api";
 
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  quiz?: QuizPayload | null;
+  sources?: ChatResponse["sources"];
+  fallback?: boolean;
+  fallbackReason?: string | null;
+  timestamp: string;
 };
 
 type ChatPanelProps = {
   documentCount: number;
   activeDocument: DocumentRecord | null;
-  uploadTrigger?: number;
+  allDocuments: DocumentRecord[];
+  onSelectDocument: (doc: DocumentRecord | null) => void;
+  initialMode?: ChatMode;
+  onSwitchToDocs: () => void;
 };
 
-export default function ChatPanel({ documentCount, activeDocument, uploadTrigger = 0 }: ChatPanelProps) {
-  // Focus chat input and add a short assistant prompt when a new upload completes
-  const prevUpload = useRef<number>(0);
+export default function ChatPanel({
+  documentCount,
+  activeDocument,
+  allDocuments,
+  onSelectDocument,
+  initialMode = "explain",
+  onSwitchToDocs,
+}: ChatPanelProps) {
+  const [mode, setMode] = useState<ChatMode>(initialMode);
 
   useEffect(() => {
-    if (uploadTrigger && uploadTrigger > prevUpload.current) {
-      prevUpload.current = uploadTrigger;
-      // add a short assistant signal and focus the textarea
-      setMessages((current) => [
-        ...current.filter((m) => m.id !== "welcome"),
-        { id: `uploaded-${uploadTrigger}`, role: "assistant", content: "Document indexed — ask anything about it." },
-      ]);
-      // focus the input after a short delay to ensure UI updated
-      setTimeout(() => textareaRef.current?.focus(), 80);
-    }
-  }, [uploadTrigger]);
-  const [mode, setMode] = useState<ChatMode>("explain");
+    setMode(initialMode);
+  }, [initialMode]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
-      content: "Upload documents first, then ask questions. I will answer only from retrieved context.",
+      content:
+        "👋 Welcome! I am your AI Study Assistant. Upload your study materials, then ask for grounded explanations, summaries, or practice quizzes.",
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sources, setSources] = useState<ChatResponse["sources"]>([]);
-  const [fallback, setFallback] = useState(false);
-  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
-  const [quiz, setQuiz] = useState<QuizPayload | null>(null);
+
+  // Active Quiz State
+  const [activeQuiz, setActiveQuiz] = useState<QuizPayload | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Array<number | null>>([]);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const promptTemplates = [
-    "Explain the most important ideas in simple terms.",
-    "Generate a 5-question quiz with answers from the uploaded document.",
-    "Summarize the document in short study notes and call out any key terms.",
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const explainTemplates = [
+    "Explain the core concepts in simple terms with examples.",
+    "Summarize this document in 5 key takeaways.",
+    "List all important definitions and formulas from this material.",
+    "Compare and contrast the main theories presented.",
   ];
 
+  const quizTemplates = [
+    "Generate a 5-question practice quiz from the uploaded document.",
+    "Create a challenging multiple choice quiz testing core concepts.",
+    "Quiz me on key terms and definitions.",
+  ];
+
+  const currentTemplates = mode === "quiz" ? quizTemplates : explainTemplates;
+
   const canAsk = useMemo(
-    () => question.trim().length > 0 && !busy && Boolean(activeDocument),
-    [question, busy, activeDocument],
+    () => question.trim().length > 0 && !busy && documentCount > 0,
+    [question, busy, documentCount],
   );
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, busy, activeQuiz]);
 
   function applyTemplate(template: string) {
     setQuestion(template);
@@ -72,10 +99,12 @@ export default function ChatPanel({ documentCount, activeDocument, uploadTrigger
       return;
     }
 
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
       content: trimmed,
+      timestamp: timeStr,
     };
 
     setMessages((current) => [...current, userMessage]);
@@ -85,22 +114,24 @@ export default function ChatPanel({ documentCount, activeDocument, uploadTrigger
 
     try {
       const response = await askQuestion(trimmed, mode, activeDocument?.id ?? null);
-      setMessages((current) => [
-        ...current,
-        { id: crypto.randomUUID(), role: "assistant", content: response.answer },
-      ]);
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: response.answer,
+        quiz: response.quiz,
+        sources: response.sources,
+        fallback: response.fallback,
+        fallbackReason: response.fallback_reason,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      setMessages((current) => [...current, assistantMsg]);
+
       if (mode === "quiz" && response.quiz) {
-        setQuiz(response.quiz);
+        setActiveQuiz(response.quiz);
         setSelectedOptions(new Array(response.quiz.questions.length).fill(null));
         setQuizSubmitted(false);
-      } else {
-        setQuiz(null);
-        setSelectedOptions([]);
-        setQuizSubmitted(false);
       }
-      setSources(response.sources);
-      setFallback(response.fallback);
-      setFallbackReason(response.fallback_reason);
     } catch (askError) {
       setError(askError instanceof Error ? askError.message : "Unable to reach the assistant");
     } finally {
@@ -108,26 +139,21 @@ export default function ChatPanel({ documentCount, activeDocument, uploadTrigger
     }
   }
 
+  // Quiz helper functions
   const allQuestionsAnswered = useMemo(() => {
-    if (!quiz || selectedOptions.length === 0) {
-      return false;
-    }
-    return selectedOptions.every((value) => value !== null);
-  }, [quiz, selectedOptions]);
+    if (!activeQuiz || selectedOptions.length === 0) return false;
+    return selectedOptions.every((val) => val !== null);
+  }, [activeQuiz, selectedOptions]);
 
   const score = useMemo(() => {
-    if (!quizSubmitted || !quiz) {
-      return 0;
-    }
-    return quiz.questions.reduce((total, question, index) => {
-      return total + (selectedOptions[index] === question.correct_option_index ? 1 : 0);
+    if (!quizSubmitted || !activeQuiz) return 0;
+    return activeQuiz.questions.reduce((total, q, idx) => {
+      return total + (selectedOptions[idx] === q.correct_option_index ? 1 : 0);
     }, 0);
-  }, [quizSubmitted, quiz, selectedOptions]);
+  }, [quizSubmitted, activeQuiz, selectedOptions]);
 
   function chooseOption(questionIndex: number, optionIndex: number) {
-    if (quizSubmitted) {
-      return;
-    }
+    if (quizSubmitted) return;
     setSelectedOptions((current) => {
       const next = [...current];
       next[questionIndex] = optionIndex;
@@ -136,129 +162,300 @@ export default function ChatPanel({ documentCount, activeDocument, uploadTrigger
   }
 
   function submitQuiz() {
-    if (!allQuestionsAnswered) {
-      return;
-    }
+    if (!allQuestionsAnswered) return;
     setQuizSubmitted(true);
   }
 
+  function retakeQuiz() {
+    if (!activeQuiz) return;
+    setSelectedOptions(new Array(activeQuiz.questions.length).fill(null));
+    setQuizSubmitted(false);
+  }
+
+  function copyMessage(text: string) {
+    navigator.clipboard.writeText(text);
+  }
+
   return (
-    <section className="card chat-shell">
-      <div className="section-heading">
-        <span className="eyebrow">Chat</span>
-        <h2>Explain or quiz the material</h2>
-        <p className="muted">{documentCount} document{documentCount === 1 ? "" : "s"} indexed</p>
-        {activeDocument ? <p className="muted">Using context: {activeDocument.filename}</p> : null}
+    <div className="chat-layout">
+      {/* Chat Header & Document Scope Selector */}
+      <div className="chat-top-bar card">
+        <div className="chat-top-info">
+          <div className="mode-toggle-group" role="tablist">
+            <button
+              type="button"
+              className={`mode-btn ${mode === "explain" ? "mode-btn-active" : ""}`}
+              onClick={() => setMode("explain")}
+            >
+              💬 Explain & Chat
+            </button>
+            <button
+              type="button"
+              className={`mode-btn ${mode === "quiz" ? "mode-btn-active" : ""}`}
+              onClick={() => setMode("quiz")}
+            >
+              🎯 Practice Quiz
+            </button>
+          </div>
+
+          <div className="document-scope-box">
+            <label className="scope-label">Context:</label>
+            <select
+              className="scope-select"
+              value={activeDocument?.id || "all"}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "all") {
+                  onSelectDocument(null);
+                } else {
+                  const found = allDocuments.find((d) => d.id === val);
+                  if (found) onSelectDocument(found);
+                }
+              }}
+            >
+              <option value="all">🌐 All Indexed Documents ({documentCount})</option>
+              {allDocuments.map((doc) => (
+                <option key={doc.id} value={doc.id} disabled={doc.status !== "ready"}>
+                  {doc.filename} {doc.status !== "ready" ? `(${doc.status})` : `(${doc.chunk_count} chunks)`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {documentCount === 0 && (
+          <div className="no-docs-warning">
+            <span>⚠️ No documents indexed yet.</span>
+            <button type="button" className="btn-link" onClick={onSwitchToDocs}>
+              Upload a document
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="mode-toggle" role="tablist" aria-label="assistant mode">
-        <button type="button" className={mode === "explain" ? "chip active" : "chip"} onClick={() => setMode("explain")}>
-          Explain
-        </button>
-        <button type="button" className={mode === "quiz" ? "chip active" : "chip"} onClick={() => setMode("quiz")}>
-          Quiz me
-        </button>
-      </div>
+      {/* Main Conversation Feed */}
+      <div className="messages-feed" aria-live="polite">
+        {messages.map((msg) => (
+          <div key={msg.id} className={`message-row message-${msg.role}`}>
+            <div className="message-avatar">
+              {msg.role === "assistant" ? "🤖" : "👤"}
+            </div>
+            <div className="message-bubble">
+              <div className="message-header">
+                <span className="message-sender">
+                  {msg.role === "assistant" ? "Study Assistant" : "You"}
+                </span>
+                <span className="message-time">{msg.timestamp}</span>
+              </div>
 
-      <div className="prompt-chips" aria-label="study prompts">
-        {promptTemplates.map((template) => (
-          <button key={template} type="button" className="chip" onClick={() => applyTemplate(template)}>
-            {template}
-          </button>
+              <div className="message-content">
+                {msg.content.split("\n").map((line, i) => (
+                  <p key={i}>{line}</p>
+                ))}
+              </div>
+
+              {msg.role === "assistant" && msg.id !== "welcome" && (
+                <div className="message-footer">
+                  <button
+                    type="button"
+                    className="btn-msg-action"
+                    onClick={() => copyMessage(msg.content)}
+                    title="Copy to clipboard"
+                  >
+                    📋 Copy
+                  </button>
+                </div>
+              )}
+
+              {msg.fallback && msg.fallbackReason && (
+                <div className="fallback-note">
+                  ℹ️ {msg.fallbackReason}
+                </div>
+              )}
+
+              {msg.sources && msg.sources.length > 0 && (
+                <SourcesList sources={msg.sources} />
+              )}
+            </div>
+          </div>
         ))}
+
+        {busy && (
+          <div className="message-row message-assistant">
+            <div className="message-avatar">🤖</div>
+            <div className="message-bubble thinking-bubble">
+              <span className="spinner-mini"></span>
+              <span>
+                {mode === "quiz"
+                  ? "Generating interactive quiz from your study materials..."
+                  : "Searching document chunks and formulating answer..."}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
       </div>
 
-      <div className="messages" aria-live="polite">
-        {messages.map((message) => (
-          <article key={message.id} className={`message ${message.role}`}>
-            {message.content}
-          </article>
-        ))}
+      {/* Active Interactive Quiz Card */}
+      {activeQuiz && (
+        <section className="card active-quiz-card">
+          <div className="quiz-card-header">
+            <div>
+              <span className="eyebrow">Interactive Assessment</span>
+              <h3>{activeQuiz.title}</h3>
+              {activeQuiz.instructions && (
+                <p className="muted">{activeQuiz.instructions}</p>
+              )}
+            </div>
+            {quizSubmitted && (
+              <div className={`quiz-score-badge ${score >= activeQuiz.questions.length * 0.8 ? "score-high" : "score-mid"}`}>
+                Score: {score} / {activeQuiz.questions.length} ({Math.round((score / activeQuiz.questions.length) * 100)}%)
+              </div>
+            )}
+          </div>
+
+          <div className="quiz-questions-list">
+            {activeQuiz.questions.map((q, qIndex) => {
+              const userChoice = selectedOptions[qIndex];
+              const isCorrect = userChoice === q.correct_option_index;
+
+              return (
+                <article key={qIndex} className="quiz-question-item">
+                  <div className="question-title-row">
+                    <span className="q-number">Q{qIndex + 1}</span>
+                    <h4 className="q-text">{q.question}</h4>
+                  </div>
+
+                  <div className="options-grid">
+                    {q.options.map((opt, optIndex) => {
+                      const selected = userChoice === optIndex;
+                      const isOptionCorrect = q.correct_option_index === optIndex;
+
+                      let optClass = "opt-btn";
+                      if (selected) optClass += " opt-selected";
+                      if (quizSubmitted) {
+                        if (isOptionCorrect) optClass += " opt-correct";
+                        else if (selected && !isOptionCorrect) optClass += " opt-wrong";
+                      }
+
+                      return (
+                        <button
+                          key={optIndex}
+                          type="button"
+                          className={optClass}
+                          onClick={() => chooseOption(qIndex, optIndex)}
+                          disabled={quizSubmitted}
+                        >
+                          <span className="opt-letter">
+                            {String.fromCharCode(65 + optIndex)}
+                          </span>
+                          <span className="opt-label">{opt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {quizSubmitted && (
+                    <div className={`answer-feedback ${isCorrect ? "feedback-success" : "feedback-danger"}`}>
+                      <strong>{isCorrect ? "✅ Correct!" : "❌ Incorrect."}</strong>{" "}
+                      {q.explanation && <span>{q.explanation}</span>}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="quiz-footer-actions">
+            {!quizSubmitted ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={submitQuiz}
+                disabled={!allQuestionsAnswered}
+              >
+                {allQuestionsAnswered
+                  ? "🎯 Submit Quiz & Check Answers"
+                  : `Answer all questions (${selectedOptions.filter((v) => v !== null).length}/${activeQuiz.questions.length})`}
+              </button>
+            ) : (
+              <div className="quiz-completed-row">
+                <button type="button" className="btn-secondary" onClick={retakeQuiz}>
+                  🔄 Retake Quiz
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setQuestion("Generate another practice quiz on different topics from this material.");
+                    textareaRef.current?.focus();
+                  }}
+                >
+                  ✨ Generate Another Quiz
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Suggested Prompt Chips */}
+      <div className="prompt-chips-tray">
+        <span className="chips-label">💡 Suggested prompts:</span>
+        <div className="chips-scroll">
+          {currentTemplates.map((template) => (
+            <button
+              key={template}
+              type="button"
+              className="chip-prompt"
+              onClick={() => applyTemplate(template)}
+            >
+              {template}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <form className="stack" onSubmit={handleSubmit}>
+      {/* Input Box Form */}
+      <form className="chat-input-form card" onSubmit={handleSubmit}>
         <textarea
           ref={textareaRef}
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          placeholder={mode === "quiz" ? "Ask for a quiz or practice questions" : "Ask for an explanation, summary, or concept breakdown"}
-          rows={4}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (canAsk) handleSubmit(e as unknown as FormEvent<HTMLFormElement>);
+            }
+          }}
+          placeholder={
+            documentCount === 0
+              ? "Upload a document first to begin studying..."
+              : mode === "quiz"
+              ? "Ask to generate a quiz (e.g. 'Create a 5-question quiz on Chapter 3')..."
+              : "Ask any question from your uploaded notes, slides, or books (Shift+Enter for newline)..."
+          }
+          rows={3}
+          disabled={documentCount === 0}
         />
-        <button type="submit" disabled={!canAsk}>
-          {busy ? "Thinking..." : mode === "quiz" ? "Generate quiz" : "Ask"}
-        </button>
+        <div className="chat-input-footer">
+          <span className="input-hint">
+            {activeDocument
+              ? `🎯 Focused on ${activeDocument.filename}`
+              : `🌐 Searching across all ${documentCount} indexed document${documentCount === 1 ? "" : "s"}`}
+          </span>
+          <button
+            type="submit"
+            className="btn-send"
+            disabled={!canAsk}
+          >
+            {busy ? "Thinking..." : mode === "quiz" ? "🎯 Generate Quiz" : "💬 Ask Question"}
+          </button>
+        </div>
       </form>
 
-      {!activeDocument ? <p className="muted">Upload a PDF first so explanations come from that file.</p> : null}
-
-      {quiz ? (
-        <section className="quiz-shell">
-          <div className="quiz-header">
-            <h3>{quiz.title}</h3>
-            {quiz.instructions ? <p className="muted">{quiz.instructions}</p> : null}
-          </div>
-
-          <div className="quiz-list">
-            {quiz.questions.map((item, questionIndex) => (
-              <article key={`${item.question}-${questionIndex}`} className="quiz-item">
-                <p className="quiz-question">
-                  {questionIndex + 1}. {item.question}
-                </p>
-                <div className="quiz-options">
-                  {item.options.map((option, optionIndex) => {
-                    const selected = selectedOptions[questionIndex] === optionIndex;
-                    const isCorrect = item.correct_option_index === optionIndex;
-                    const showCorrect = quizSubmitted && isCorrect;
-                    const showWrong =
-                      quizSubmitted &&
-                      selected &&
-                      selectedOptions[questionIndex] !== item.correct_option_index;
-
-                    const classes = [
-                      "quiz-option",
-                      selected ? "selected" : "",
-                      showCorrect ? "correct" : "",
-                      showWrong ? "wrong" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ");
-
-                    return (
-                      <button
-                        key={`${option}-${optionIndex}`}
-                        type="button"
-                        className={classes}
-                        onClick={() => chooseOption(questionIndex, optionIndex)}
-                      >
-                        {option}
-                      </button>
-                    );
-                  })}
-                </div>
-                {quizSubmitted && item.explanation ? <p className="quiz-explanation">{item.explanation}</p> : null}
-              </article>
-            ))}
-          </div>
-
-          <div className="quiz-actions">
-            <button type="button" onClick={submitQuiz} disabled={!allQuestionsAnswered || quizSubmitted}>
-              {quizSubmitted ? "Submitted" : "Submit quiz"}
-            </button>
-            {quizSubmitted ? (
-              <p className="quiz-score">
-                Score: {score}/{quiz.questions.length}
-              </p>
-            ) : (
-              <p className="muted">Select one option per question to submit.</p>
-            )}
-          </div>
-        </section>
-      ) : null}
-
-      {error ? <p className="error">{error}</p> : null}
-      {fallback ? <p className="fallback">Fallback used{fallbackReason ? `: ${fallbackReason}` : ""}</p> : null}
-      <SourcesList sources={sources} />
-    </section>
+      {error && <div className="alert alert-danger">{error}</div>}
+    </div>
   );
 }
-
